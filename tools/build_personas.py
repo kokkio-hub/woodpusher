@@ -97,7 +97,7 @@ def main(src):
     names = {p['id']: defaultdict(int) for p in PLAYERS}
     first = {p['id']: {'w': defaultdict(float), 'e4': defaultdict(float), 'd4': defaultdict(float)} for p in PLAYERS}
     dates = []
-    seen = set()
+    seen, used = set(), set()
     head_rx = re.compile(r'^\[(?:White|Black) "([^"]*)"\]', re.M)
     def candidates():
         # A quick text pass keeps only games with one of the ten players, so only those get parsed move by move.
@@ -140,6 +140,7 @@ def main(src):
                         counts[p['id']]['online_skipped'] += 1
                     continue
                 w8 = WEIGHT[tc]
+                used.add(sig)
                 d = h.get('Date', '')
                 if re.match(r'^\d{4}\.\d{2}', d):
                     dates.append(d[:7])
@@ -252,7 +253,7 @@ def main(src):
         c = counts[pid]
         out.append(dict(
             id=pid, name=p['name'], short=p['short'], fed=p['fed'], rating=p['rating'], rank=p['rank'], list=LIST, bookPlies=BOOK_PLIES,
-            games=dict(total=c['classical'] + c['rapid'] + c['blitz'], classical=c['classical'], rapid=c['rapid'], blitz=c['blitz'], positions=npos, **{'from': month(span[0]), 'to': month(span[1])}),
+            games=dict(total=c['classical'] + c['rapid'] + c['blitz'], classical=c['classical'], rapid=c['rapid'], blitz=c['blitz'], positions=npos, source=len(used), **{'from': month(span[0]), 'to': month(span[1])}),
             stats={k: round(v, 3) for k, v in m.items()},
             axes=dict(sharp=sharp_axis[pid], trades=trade_axis[pid], long=long_axis[pid]),
             w=dict(tactic=round(zs['sharp'][pid], 3), trade=round(zs['qtrade'][pid], 3), sac=round(zs['sac'][pid], 3), storm=round(zs['storm'][pid], 3),

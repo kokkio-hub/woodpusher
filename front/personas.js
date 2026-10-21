@@ -108,7 +108,7 @@ function renderOppModal() {
   const id = S.settings.opp || '';
   $('#oppGrid').innerHTML = oppCardHTML(null, !id) + PERSONA_LIST.map(p => oppCardHTML(p, p.id === id)).join('');
   const src = PERSONA_LIST[0];
-  $('#oppSource').textContent = src ? `Built from ${PERSONA_LIST.reduce((a, p) => a + p.games.total, 0).toLocaleString('en-GB')} games published in The Week in Chess, ${src.games.from} to ${src.games.to}. Ratings: FIDE list of ${src.list}. Style bars compare the ten with each other.` : '';
+  $('#oppSource').textContent = src ? `Built from ${(src.games.source || 0).toLocaleString('en-GB')} over-the-board games published in The Week in Chess, ${src.games.from} to ${src.games.to}. Online games are left out. Ratings: FIDE list of ${src.list}. Style bars compare the ten with each other.` : '';
 }
 function wireOpponents() {
   $('#oppPick').addEventListener('click', () => { renderOppModal(); $('#oppModal').hidden = false; const cur = $('#oppGrid [aria-pressed="true"]'); if (cur) cur.focus({ preventScroll: true }); });
