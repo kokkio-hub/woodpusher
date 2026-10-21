@@ -13,6 +13,10 @@ const styles = ['styles.js', 'profile.js', 'opening.js', 'personas.js'].map(f =>
 must(html.includes('/*STYLES*/'), 'styles marker');
 html = html.replace('/*STYLES*/', () => styles);
 html = html.replace('/*TRAINER*/', () => trainer + '\n' + online);
+// The saved look is read before first paint. The site's security policy blocks inline scripts, so it becomes /look.js.
+const lookM = html.match(/<script>\/\*LOOK\*\/([\s\S]*?)<\/script>/);
+must(lookM, 'look script');
+html = html.replace(lookM[0], '<script src="/look.js"></script>');
 const start = html.indexOf('<script>\n"use strict";'); const end = html.lastIndexOf('</script>');
 must(start > 0 && end > start, 'main script');
 let app = html.slice(start + '<script>'.length, end);
@@ -45,6 +49,7 @@ ${html.slice(cut)}
 fs.mkdirSync(P(''), { recursive: true });
 fs.writeFileSync(P('index.html'), page);
 fs.writeFileSync(P('app.js'), app.trim() + '\n');
+fs.writeFileSync(P('look.js'), lookM[1].trim() + '\n');
 fs.writeFileSync(P('data.js'), ['openings.js', 'puzzles.js', 'personas.js'].filter(f => fs.existsSync(F('data/' + f))).map(f => read(F('data/' + f))).join('\n'));
 fs.rmSync(P('books'), { recursive: true, force: true }); fs.mkdirSync(P('books'), { recursive: true });
 if (fs.existsSync(F('data/books'))) for (const f of fs.readdirSync(F('data/books'))) fs.copyFileSync(F('data/books/' + f), P('books/' + f));

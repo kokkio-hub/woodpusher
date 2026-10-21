@@ -273,6 +273,12 @@ function paintOtherFrame(ctx, W, f, dpr) {
 }
 
 /* ---------------- settings menu ---------------- */
+// Dark (espresso) or light (walnut on off-white). The board and pieces are drawn the same in both.
+function applyTheme() {
+  const light = S.settings.look === 'light';
+  if (light) document.documentElement.setAttribute('data-look', 'light'); else document.documentElement.removeAttribute('data-look');
+  const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.setAttribute('content', light ? '#f3f1ef' : '#17110d');
+}
 function applyLook() {
   const wrap = $('#boardWrap'); wrap.dataset.board = curBoard();
   pieceEls.forEach(p => { p.el.innerHTML = pieceSVG(p.code); });
@@ -289,6 +295,7 @@ function renderSettings() {
   $('#styleGrid').innerHTML = STYLE_ORDER.map(id => `<button class="style-card" data-style="${id}" aria-pressed="${id === st}">${previewHTML(id)}<b>${esc(PIECE_STYLES[id].name)}</b><small>${esc(PIECE_STYLES[id].note)}</small></button>`).join('');
   $('#boardGrid').innerHTML = BOARD_ORDER.map(id => `<button class="board-card" data-board="${id}" aria-pressed="${id === bd}"><span class="bd-prev bd-${id}" style="--l:${BOARDS[id].swatch[0]};--d:${BOARDS[id].swatch[1]}"></span><span>${esc(BOARDS[id].name)}</span></button>`).join('');
   $('#setSound').checked = Snd.on;
+  document.querySelectorAll('#lookSeg .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.look === (S.settings.look === 'light' ? 'light' : 'dark'))));
   renderUserSection();
 }
 function wireSettings() {
@@ -303,6 +310,10 @@ function wireSettings() {
   $('#boardGrid').addEventListener('click', (e) => {
     const b = e.target.closest('.board-card'); if (!b) return;
     S.settings.board = b.dataset.board; applyLook(); renderSettings(); save(); $(`#boardGrid [data-board="${b.dataset.board}"]`).focus();
+  });
+  $('#lookSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('.seg-btn'); if (!b) return;
+    S.settings.look = b.dataset.look === 'light' ? 'light' : 'dark'; applyTheme(); renderSettings(); save(); b.focus();
   });
   $('#setSound').addEventListener('change', (e) => { Snd.on = e.target.checked; S.settings.sound = Snd.on; if (Snd.on) Snd.move(); save(); });
 }

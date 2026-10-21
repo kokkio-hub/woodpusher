@@ -1,0 +1,1 @@
+try { var wpd = JSON.parse(localStorage.getItem('woodpusher.v1') || 'null'); if (wpd && wpd.settings && wpd.settings.look === 'light') document.documentElement.setAttribute('data-look', 'light'); } catch (e) {}
