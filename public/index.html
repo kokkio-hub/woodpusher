@@ -246,7 +246,9 @@ input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3
 input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--brass-lo), var(--brass)); }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -8px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fbe7b4, #c69a4f 60%, #7c6032); border: 1px solid #4a3517; box-shadow: 0 2px 4px rgba(0,0,0,.6); }
 input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fbe7b4, #c69a4f 60%, #7c6032); border: 1px solid #4a3517; }
-.ticks { display: flex; justify-content: space-between; padding: 0 7px; font-size: 12px; color: var(--ivory-dim); font-variant-numeric: tabular-nums; }
+.fine-note { margin: 4px 0 0; font-size: 12.5px; color: var(--ivory-dim); opacity: .8; }
+.ticks { position: relative; height: 16px; margin: 0 11px; font-size: 12px; color: var(--ivory-dim); font-variant-numeric: tabular-nums; }
+.ticks span { position: absolute; top: 0; transform: translateX(-50%); }
 .btn-play { width: 100%; font-size: 18px; padding: 13px; margin-top: 2px; }
 .engine-status { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 13.5px; color: var(--ivory-dim); }
 .engine-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c-inaccuracy); box-shadow: 0 0 6px var(--c-inaccuracy); flex: none; }
@@ -480,10 +482,11 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
         </div>
       </div>
       <div class="field">
-        <div class="field-row"><label class="field-label" for="lvl">Strength</label><output id="lvlOut" for="lvl"></output></div>
-        <input type="range" id="lvl" min="1" max="8" step="1" value="4">
-        <div class="ticks" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+        <div class="field-row"><label class="field-label" for="lvl">Strength (Elo)</label><output id="lvlOut" for="lvl"></output></div>
+        <input type="range" id="lvl" min="400" max="2800" step="50" value="1200">
+        <div class="ticks" aria-hidden="true"><span style="left:0%">400</span><span style="left:25%">1000</span><span style="left:50%">1600</span><span style="left:75%">2200</span><span style="left:100%">2800</span></div>
         <p class="hint-text" id="lvlBlurb"></p>
+        <p class="fine-note">Ratings are estimates. This version of Stockfish has no official Elo setting, so Woodpusher tunes its depth, thinking time and move choice to match.</p>
       </div>
       <div class="field">
         <span class="field-label" id="lblTc">Clock</span>

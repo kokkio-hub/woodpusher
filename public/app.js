@@ -3,16 +3,41 @@
    Constants
    ===================================================================== */
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-const LEVELS = [null,
-  { name: 'Novice',        blurb: 'Hangs a piece now and then. A gentle start.',      skill: 0,  depth: 1,  mt: 60,   random: 0.22 },
-  { name: 'Beginner',      blurb: 'Knows the basics and misses simple tactics.',       skill: 2,  depth: 2,  mt: 100,  random: 0.08 },
-  { name: 'Casual',        blurb: 'Plays sensible moves and slips under pressure.',    skill: 5,  depth: 3,  mt: 160,  random: 0 },
-  { name: 'Club player',   blurb: 'Solid and steady. Punishes loose pieces.',          skill: 8,  depth: 5,  mt: 260,  random: 0 },
-  { name: 'Strong club',   blurb: 'Sees short combinations coming.',                   skill: 11, depth: 7,  mt: 420,  random: 0 },
-  { name: 'Expert',        blurb: 'Rarely blunders and grinds out endgames.',          skill: 14, depth: 10, mt: 650,  random: 0 },
-  { name: 'Master',        blurb: 'Deep tactics and precise technique.',               skill: 17, depth: 13, mt: 950,  random: 0 },
-  { name: 'Full strength', blurb: 'Stockfish with nothing held back.',                 skill: 20, depth: 18, mt: 1500, random: 0 },
+// Stockfish 10 has no Elo setting, so Woodpusher weakens it itself: shallower search, less time,
+// and a softmax choice among the best few moves whose "temperature" rises as the rating falls.
+// The numbers are estimates, not an official calibration.
+const ELO_MIN = 400, ELO_MAX = 2800, ELO_STEP = 50, ELO_DEFAULT = 1200;
+const LEVEL_TO_ELO = { 1: 600, 2: 800, 3: 1000, 4: 1200, 5: 1500, 6: 1800, 7: 2100, 8: 2600 };
+const ELO_BANDS = [
+  [700, 'Novice', 'Hangs pieces and misses simple threats. A gentle start.'],
+  [1000, 'Beginner', 'Knows how the pieces move but drops material often.'],
+  [1300, 'Casual', 'Plays sensible moves and slips under pressure.'],
+  [1600, 'Club player', 'Solid and steady. Punishes loose pieces.'],
+  [1900, 'Strong club player', 'Sees short combinations and rarely gives things away.'],
+  [2200, 'Expert', 'Calculates well and grinds out endgames.'],
+  [2500, 'Master level', 'Deep tactics and precise technique.'],
+  [Infinity, 'Near full strength', 'Stockfish with almost nothing held back.'],
 ];
+const eloBand = (e) => ELO_BANDS.find(x => e < x[0]);
+const eloLabel = (e) => `≈${e} · ${eloBand(e)[1]}`;
+function eloParams(e) {
+  const t = clamp((e - ELO_MIN) / (ELO_MAX - ELO_MIN), 0, 1);
+  return {
+    depth: Math.round(1 + 17 * t),                       // 1 at 400, 18 at 2800
+    movetime: Math.round(60 + 1440 * t * t),             // 60 ms up to 1.5 s
+    multipv: e >= 2600 ? 1 : 4,                          // the strongest settings always play the top move
+    temp: 3 + 300 * Math.pow(1 - t, 2.4),                // centipawns; ~300 at 400, ~60 at 1600, ~6 at 2400
+    blunder: e < 1100 ? 0.25 * Math.pow((1100 - e) / 700, 1.3) : 0, // random move chance for the lowest ratings
+  };
+}
+const lineScore = (l) => (l.mate != null ? (l.mate > 0 ? 10000 - l.mate : -10000 - l.mate) : l.cp);
+function pickByTemperature(lines, temp) {
+  const ls = lines.filter(l => l && l.pv && l.pv.length); if (!ls.length) return null;
+  const sc = ls.map(lineScore); const best = Math.max(...sc);
+  const w = sc.map(x => Math.exp(-(best - x) / temp)); let r = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < ls.length; i++) { r -= w[i]; if (r <= 0) return ls[i]; }
+  return ls[0];
+}
 const TCS = [
   { id: '1+0', base: 60, inc: 0, kind: 'Bullet' },
   { id: '3+0', base: 180, inc: 0, kind: 'Blitz' },
@@ -361,7 +386,7 @@ const Snd = {
    ===================================================================== */
 const S = {
   mode: 'idle',              // idle | play | paused | over | review
-  settings: { color: 'w', level: 4, tc: '3+2', sound: true },
+  settings: { color: 'w', elo: 1200, tc: '3+2', sound: true },
   line: null,                // { startFen, fens[], moves[], names{w,b}, subs{w,b}, headers, result, reason, source }
   game: null,                // { playerColor, level, tc, clock:{w,b,running,last}, lastEngineScore }
   chess: null,               // live chess.js game
@@ -734,7 +759,7 @@ function parseInfo(line) {
 }
 class Engine {
   constructor(worker) {
-    this.w = worker; this.q = []; this.cur = null; this.skill = null;
+    this.w = worker; this.q = []; this.cur = null; this.skill = null; this.mpv = 1;
     worker.onmessage = (e) => this.onLine(String(e.data));
     worker.onerror = (e) => { if (e && e.preventDefault) e.preventDefault(); };
     this.send('setoption name Hash value 16');
@@ -743,16 +768,18 @@ class Engine {
   onLine(line) {
     if (!this.cur) return;
     if (line.startsWith('info ') && line.includes(' score ')) {
-      const info = parseInfo(line); if (info && (info.multipv || 1) === 1 && !info.bound && info.pv) this.cur.last = info;
+      const info = parseInfo(line);
+      if (info && !info.bound && info.pv) { const k = info.multipv || 1; this.cur.lines[k - 1] = info; if (k === 1) this.cur.last = info; }
     } else if (line.startsWith('bestmove')) {
       const parts = line.split(/\s+/); const job = this.cur; this.cur = null;
-      job.resolve({ bestmove: parts[1] && parts[1] !== '(none)' ? parts[1] : null, info: job.last || null });
+      job.resolve({ bestmove: parts[1] && parts[1] !== '(none)' ? parts[1] : null, info: job.last || null, lines: job.lines });
       this.next();
     }
   }
   search(opts) { return new Promise(resolve => { this.q.push(Object.assign({}, opts, { resolve })); if (!this.cur) this.next(); }); }
   next() {
-    const job = this.q.shift(); if (!job) return; this.cur = job;
+    const job = this.q.shift(); if (!job) return; this.cur = job; job.lines = [];
+    const mpv = job.multipv || 1; if (mpv !== this.mpv) { this.send(`setoption name MultiPV value ${mpv}`); this.mpv = mpv; }
     const sk = job.skill == null ? 20 : job.skill;
     if (sk !== this.skill) { this.send(`setoption name Skill Level value ${sk}`); this.skill = sk; }
     this.send(`position fen ${job.fen}`);
@@ -787,24 +814,24 @@ async function getPool() {
    Game flow
    ===================================================================== */
 function playerNames(playerColor, level) {
-  const eng = 'Stockfish', you = 'You'; const lv = LEVELS[level];
+  const eng = 'Stockfish', you = 'You';
   const names = playerColor === 'w' ? { w: you, b: eng } : { w: eng, b: you };
-  const subs = playerColor === 'w' ? { w: 'White', b: `Level ${level} · ${lv.name}` } : { w: `Level ${level} · ${lv.name}`, b: 'Black' };
+  const subs = playerColor === 'w' ? { w: 'White', b: eloLabel(level) } : { w: eloLabel(level), b: 'Black' };
   return { names, subs };
 }
 function startGame() {
   Snd.ensure(); trainerStop();
   const st = S.settings; const pc = st.color === 'r' ? (Math.random() < .5 ? 'w' : 'b') : st.color;
-  const tc = tcById(st.tc); const { names, subs } = playerNames(pc, st.level);
+  const tc = tcById(st.tc); const { names, subs } = playerNames(pc, st.elo);
   S.engineToken++; if (ENG.main) ENG.main.cancelAll();
   S.chess = new Chess();
   S.line = newLine(START_FEN, names, subs, { headers: { Date: new Date().toISOString().slice(0, 10).replace(/-/g, '.') } });
-  S.game = { playerColor: pc, level: st.level, tc: tc.id, clock: { w: tc.base * 1000, b: tc.base * 1000, running: null, last: 0 }, lastEngineScore: null };
+  S.game = { playerColor: pc, elo: st.elo, tc: tc.id, clock: { w: tc.base * 1000, b: tc.base * 1000, running: null, last: 0 }, lastEngineScore: null };
   S.view = 0; S.sel = null; S.legal = []; S.orientation = pc; S.review = null; S.bannerOpen = false;
   if (ENG.main) ENG.main.send('ucinewgame');
   setMode('play');
   renderCoords(); renderPieces(START_FEN, false); renderAll();
-  announce(`New game. You play ${pc === 'w' ? 'White' : 'Black'} against Stockfish level ${st.level}.`);
+  announce(`New game. You play ${pc === 'w' ? 'White' : 'Black'} against Stockfish at about ${st.elo} Elo.`);
   if (pc === 'b') engineMove();
   save();
 }
@@ -840,11 +867,11 @@ function checkEnd(mv) {
   return null;
 }
 async function engineMove() {
-  const token = ++S.engineToken; const g = S.game; const lv = LEVELS[g.level];
+  const token = ++S.engineToken; const g = S.game; const P = eloParams(g.elo);
   setThinking(true);
   const t0 = performance.now(); const fen = S.chess.fen();
   let uci = null;
-  if (lv.random && Math.random() < lv.random) {
+  if (P.blunder && Math.random() < P.blunder) {
     const ms = S.chess.moves({ verbose: true }); const m = ms[Math.floor(Math.random() * ms.length)];
     uci = m.from + m.to + (m.promotion || '');
     await sleep(350 + Math.random() * 500);
@@ -852,12 +879,13 @@ async function engineMove() {
     const eng = await ENG.ready;
     if (token !== S.engineToken || S.mode !== 'play') return;
     if (!eng) { setThinking(false); toast('Stockfish is not running, so it cannot reply. Reload the page.'); return; }
-    let mt = lv.mt; const tc = tcById(g.tc);
+    let mt = P.movetime; const tc = tcById(g.tc);
     if (tc.base) { const rem = Math.max(0, remaining(S.chess.turn())); mt = Math.min(mt, Math.max(40, rem / 30 + tc.inc * 600)); }
-    const res = await eng.search({ fen, depth: lv.depth, movetime: mt, skill: lv.skill });
+    const res = await eng.search({ fen, depth: P.depth, movetime: mt, skill: 20, multipv: P.multipv });
     if (token !== S.engineToken || S.mode !== 'play') return;
     if (!res || !res.bestmove) { setThinking(false); return; }
-    uci = res.bestmove; g.lastEngineScore = res.info;
+    const pick = P.multipv > 1 ? pickByTemperature(res.lines || [], P.temp) : null;
+    uci = pick ? pick.pv[0] : res.bestmove; g.lastEngineScore = res.info;
     const minDelay = 260 + Math.random() * 380; const el = performance.now() - t0;
     if (el < minDelay) await sleep(minDelay - el);
   }
@@ -981,8 +1009,8 @@ function renderPlates() {
   const nameOf = (c) => {
     if (L) return { n: L.names[c], s: L.subs[c] };
     if (S.mode === 'online' && window.WP_ONLINE) return window.WP_ONLINE.plate(c);
-    const pc = S.settings.color === 'b' ? 'b' : 'w'; const lv = S.settings.level;
-    return c === pc ? { n: 'You', s: c === 'w' ? 'White' : 'Black' } : { n: 'Stockfish', s: `Level ${lv} · ${LEVELS[lv].name}` };
+    const pc = S.settings.color === 'b' ? 'b' : 'w';
+    return c === pc ? { n: 'You', s: c === 'w' ? 'White' : 'Black' } : { n: 'Stockfish', s: eloLabel(S.settings.elo) };
   };
   const plate = (c) => {
     const { n, s } = nameOf(c);
@@ -1330,7 +1358,7 @@ function buildPGN() {
   const g = S.game; const tc = g ? tcById(g.tc) : null;
   const h = Object.assign({ Event: L.source === 'play' ? 'Woodpusher vs Stockfish' : 'Casual game', Site: 'Woodpusher', Date: '????.??.??', Round: '-', White: L.names.w, Black: L.names.b, Result: L.result }, L.source === 'pgn' ? L.headers : {});
   h.Result = L.result; if (tc) h.TimeControl = tc.base ? `${tc.base}+${tc.inc}` : '-';
-  if (L.source === 'play' && g) { h[g.playerColor === 'w' ? 'Black' : 'White'] = `Stockfish (Level ${g.level})`; }
+  if (L.source === 'play' && g) { h[g.playerColor === 'w' ? 'Black' : 'White'] = `Stockfish (about ${g.elo} Elo)`; }
   if (L.startFen !== START_FEN) { h.SetUp = '1'; h.FEN = L.startFen; }
   let out = Object.entries(h).map(([k, v]) => `[${k} "${String(v).replace(/"/g, '\\"')}"]`).join('\n') + '\n\n';
   const p = L.startFen.split(' '); let no = +p[5] || 1; let body = '';
@@ -1354,7 +1382,7 @@ function snapshot() {
   return {
     v: 1, settings: S.settings, mode: S.mode, orientation: S.orientation, view: S.view,
     line: L ? { startFen: L.startFen, sans: L.moves.map(m => m.san), names: L.names, subs: L.subs, headers: L.headers, result: L.result, reason: L.reason, source: L.source } : null,
-    game: g ? { playerColor: g.playerColor, level: g.level, tc: g.tc, clock: { w: Math.max(0, remaining('w')), b: Math.max(0, remaining('b')), running: g.clock.running } } : null,
+    game: g ? { playerColor: g.playerColor, elo: g.elo, tc: g.tc, clock: { w: Math.max(0, remaining('w')), b: Math.max(0, remaining('b')), running: g.clock.running } } : null,
     review: S.review ? { key: S.review.key, evals: S.review.evals, best: S.review.best, pv: S.review.pv } : null,
   };
 }
@@ -1371,7 +1399,7 @@ function restore(d) {
     for (const san of d.line.sans) { const m = c.move(san); if (!m) return false; m.uci = m.from + m.to + (m.promotion || ''); moves.push(m); fens.push(c.fen()); }
     S.line = Object.assign(newLine(d.line.startFen, d.line.names, d.line.subs), { headers: d.line.headers || {}, result: d.line.result, reason: d.line.reason, source: d.line.source });
     S.line.fens = fens; S.line.moves = moves; S.chess = c;
-    if (d.game) S.game = { playerColor: d.game.playerColor, level: d.game.level, tc: d.game.tc, clock: { w: d.game.clock.w, b: d.game.clock.b, running: d.game.clock.running, last: performance.now() }, lastEngineScore: null };
+    if (d.game) S.game = { playerColor: d.game.playerColor, elo: d.game.elo || LEVEL_TO_ELO[d.game.level] || ELO_DEFAULT, tc: d.game.tc, clock: { w: d.game.clock.w, b: d.game.clock.b, running: d.game.clock.running, last: performance.now() }, lastEngineScore: null };
     S.orientation = d.orientation || 'w';
     S.view = clamp(d.view ?? fens.length - 1, 0, fens.length - 1);
     if (d.review && d.review.key === lineKey(S.line)) S.review = { key: d.review.key, evals: d.review.evals || [], best: d.review.best || [], pv: d.review.pv || [], cls: [], acc: [], token: 0, done: false };
@@ -1391,7 +1419,8 @@ function restore(d) {
 function renderSetup() {
   const st = S.settings;
   document.querySelectorAll('#colorSeg .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.color === st.color)));
-  $('#lvl').value = st.level; $('#lvlOut').textContent = `Level ${st.level} · ${LEVELS[st.level].name}`; $('#lvlBlurb').textContent = LEVELS[st.level].blurb;
+  $('#lvl').value = st.elo; $('#lvlOut').textContent = eloLabel(st.elo); $('#lvlBlurb').textContent = eloBand(st.elo)[2];
+  $('#lvl').setAttribute('aria-valuetext', `About ${st.elo} Elo, ${eloBand(st.elo)[1]}`);
   $('#tcGrid').innerHTML = TCS.map(t => `<button class="tc-btn" data-tc="${t.id}" aria-pressed="${t.id === st.tc}" aria-label="${t.base ? `${t.base / 60} minutes plus ${t.inc} seconds, ${t.kind}` : 'Untimed'}"><b>${t.base ? t.id : '∞'}</b><small>${t.kind}</small></button>`).join('');
   $('#btnSound').textContent = Snd.on ? 'Sound on' : 'Sound off'; $('#btnSound').setAttribute('aria-pressed', String(Snd.on));
 }
@@ -1399,7 +1428,7 @@ function wire() {
   document.querySelectorAll('[data-pc]').forEach(el => { el.innerHTML = pieceSVG(el.dataset.pc); });
   $('#brandMark').innerHTML = pieceSVG('wN');
   $('#colorSeg').addEventListener('click', e => { const b = e.target.closest('.seg-btn'); if (!b) return; S.settings.color = b.dataset.color; renderSetup(); if (S.mode === 'idle') { S.orientation = S.settings.color === 'b' ? 'b' : 'w'; renderCoords(); repositionAll(); drawBoardCanvas(); renderAll(); } save(); });
-  $('#lvl').addEventListener('input', e => { S.settings.level = +e.target.value; renderSetup(); renderPlates(); save(); });
+  $('#lvl').addEventListener('input', e => { S.settings.elo = +e.target.value; renderSetup(); renderPlates(); save(); });
   $('#tcGrid').addEventListener('click', e => { const b = e.target.closest('.tc-btn'); if (!b) return; S.settings.tc = b.dataset.tc; renderSetup(); renderSheet(); updateClock(); save(); });
   $('#btnPlay').addEventListener('click', startGame);
   $('#btnNew').addEventListener('click', (e) => {
@@ -2194,6 +2223,8 @@ function boot(hot) {
   buildDefs(); buildClock(); wire();
   const data = (hot && hot.state) || loadLocal();
   if (data && data.settings) { Object.assign(S.settings, data.settings); Snd.on = S.settings.sound !== false; }
+  if (!S.settings.elo) S.settings.elo = LEVEL_TO_ELO[S.settings.level] || ELO_DEFAULT;
+  S.settings.elo = clamp(Math.round(S.settings.elo / ELO_STEP) * ELO_STEP, ELO_MIN, ELO_MAX); delete S.settings.level;
   renderSetup();
   S.orientation = S.settings.color === 'b' ? 'b' : 'w';
   layoutBoard(); renderCoords();
