@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · Woodpusher</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<style>
+  :root { --leather: #15271d; --ivory: #ece3cb; --ivory-dim: #b5ab91; --brass-hi: #efd69f; --paper: #f1e9d6; --ink: #2a2119; color-scheme: dark; }
+  body { margin: 0; background: var(--leather); color: var(--ivory); font: 17px/1.6 Calibri, Carlito, "Segoe UI", system-ui, sans-serif; padding: 32px max(16px, env(safe-area-inset-left, 0px)) 48px max(16px, env(safe-area-inset-right, 0px)); }
+  main { max-width: 68ch; margin: 0 auto; }
+  h1, h2 { font-family: "IM Fell English SC", Georgia, serif; font-weight: 400; color: var(--brass-hi); line-height: 1.15; }
+  h1 { font-size: 38px; margin: 0 0 6px; }
+  h2 { font-size: 24px; margin: 30px 0 6px; }
+  a { color: var(--brass-hi); }
+  .lead { color: var(--ivory-dim); margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 8px 8px 0; border-top: 1px solid rgba(201,165,94,.25); }
+  th { color: var(--ivory-dim); font-weight: 600; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; }
+  .wrap { overflow-x: auto; }
+  .todo { background: #6b4a12; color: #fff3d6; padding: 1px 6px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<main>
+  <p><a href="/">← Back to Woodpusher</a></p>
+  <h1>Privacy statement</h1>
+  <p class="lead">Last updated: <span class="todo">[date]</span></p>
+
+  <p>Woodpusher is a chess website run by <span class="todo">[your full name]</span>, based in the Netherlands. You can reach me at <span class="todo">[contact email]</span>. I am the controller for the personal data described here, under the General Data Protection Regulation (GDPR / AVG).</p>
+
+  <h2>What is stored</h2>
+  <div class="wrap"><table>
+    <tr><th>Data</th><th>Why</th><th>Legal basis</th><th>How long</th></tr>
+    <tr><td>Username</td><td>Your account, and shown to opponents and on your games</td><td>Performance of the agreement (art. 6(1)(b))</td><td>Until you delete your account</td></tr>
+    <tr><td>Password, stored only as a bcrypt hash</td><td>Logging in</td><td>Performance of the agreement</td><td>Until you delete your account</td></tr>
+    <tr><td>Ratings per time control</td><td>Fair matchmaking</td><td>Performance of the agreement</td><td>Until you delete your account</td></tr>
+    <tr><td>Your games: moves, result, clock times, dates</td><td>Your game history and reviews; your opponents' history</td><td>Performance of the agreement</td><td>Kept, but your name is removed from them when you delete your account</td></tr>
+    <tr><td>Session cookie <code>wp.sid</code></td><td>Keeping you logged in</td><td>Strictly necessary; no consent needed</td><td>30 days after your last visit</td></tr>
+    <tr><td>IP address, briefly</td><td>Limiting login attempts and keeping the service secure</td><td>Legitimate interest (art. 6(1)(f))</td><td>Rate-limit counters: 15 minutes. Hosting logs: <span class="todo">[check the host's log retention]</span></td></tr>
+  </table></div>
+  <p>Woodpusher asks for no email address, shows no ads, and uses no tracking or analytics. Fonts are served from this site itself, not from Google.</p>
+  <p>Settings, puzzle progress and opening progress are saved in your own browser (local storage). They never reach the server.</p>
+
+  <h2>Who processes the data</h2>
+  <p>The site and database run on <span class="todo">[hosting provider, e.g. Railway Corporation]</span>. <span class="todo">[State where their servers are and, if outside the EU, which transfer safeguard applies, such as the EU Standard Contractual Clauses in their data processing agreement.]</span> Nobody else receives your data.</p>
+
+  <h2>Your rights</h2>
+  <p>You can see your data on your profile and in your game history, and copy any game as PGN. You can delete your account at any time under <em>Play online → Delete account</em>. This removes your account and ratings, and takes your name out of past games. For anything else (access, correction, restriction, objection or a copy of your data), email <span class="todo">[contact email]</span>. I will answer within a month.</p>
+  <p>You can also complain to the Dutch Data Protection Authority, the <a href="https://www.autoriteitpersoonsgegevens.nl" target="_blank" rel="noopener">Autoriteit Persoonsgegevens</a>.</p>
+
+  <h2>Age</h2>
+  <p>Woodpusher accounts are meant for people aged 16 and over.</p>
+
+  <h2>Open source</h2>
+  <p>The chess engine is <a href="https://github.com/nmrugg/stockfish.js" target="_blank" rel="noopener">Stockfish.js</a> (GPL-3.0). Woodpusher's own source code is at <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">github.com/kokkio-hub/woodpusher</a>.</p>
+</main>
+</body>
+</html>
