@@ -656,7 +656,7 @@ function recordStockfishGame() {
   const w = L.result === '1-0' ? 'w' : L.result === '0-1' ? 'b' : null;
   const score = w ? (w === g.playerColor ? 1 : 0) : 0.5;
   if (!g.histId) g.histId = histId();
-  const rec = { id: g.histId, at: Date.now(), kind: 'sf', elo: g.elo, color: g.playerColor, score, tc: g.tc, plies: L.moves.length, takebacks: g.takebacks || 0, key: lineKey(L), acc: null };
+  const rec = { id: g.histId, at: Date.now(), kind: 'sf', elo: g.elo, opp: g.opp || null, color: g.playerColor, score, tc: g.tc, plies: L.moves.length, takebacks: g.takebacks || 0, key: lineKey(L), acc: null };
   const old = HIST.games.find(x => x.id === rec.id);
   if (old) Object.assign(old, rec, { acc: old.acc }); else HIST.games.unshift(rec);
   saveHist();
@@ -842,6 +842,131 @@ function startOpening() {
 }
 
 /* =====================================================================
+   Opponents in the style of the world's top players. Each bot plays the
+   player's own openings first: a book built from their real games, picked
+   in the same proportions they played them. Out of the book, Stockfish
+   chooses among its best few moves with a nudge towards that player's
+   habits: how sharp, how keen on trading queens, how willing to give
+   material for play, how hard they push against a draw. They are computer
+   imitations, not the players.
+   ===================================================================== */
+const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
+const BOOK_BASE = '/books/';
+const BOOKS = {};
+const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
+const curPersona = () => personaById(S.settings.opp);
+const botName = (p) => (p ? `${p.short} style` : 'Stockfish');
+
+// The same key the book builder uses: piece placement, side to move and castling rights, hashed with FNV-1a.
+function bookKey(fen) {
+  const p = fen.split(' '); const s = p[0] + ' ' + p[1] + ' ' + p[2];
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36);
+}
+function loadBook(id) {
+  if (!BOOKS[id]) BOOKS[id] = fetch(BOOK_BASE + id + '.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
+  return BOOKS[id];
+}
+// Stronger settings stay in the book longer: 8 plies at 1000, the full 30 from about 2650.
+const bookPlies = (elo) => clamp(Math.round(8 + (elo - 1000) / 75), 8, 30);
+// Book entries are [uci, games, weight]; weight counts classical games fully, rapid and blitz less.
+async function bookMove(p, fen, ply, elo) {
+  if (ply >= Math.min(bookPlies(elo), p.bookPlies || 30)) return null;
+  const book = await loadBook(p.id); if (!book) return null;
+  const side = fen.split(' ')[1];
+  const entry = (book[side] || {})[bookKey(fen)]; if (!entry) return null;
+  const legal = new Set(chessAt(fen).moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || '')));
+  const opts = entry.filter(([u]) => legal.has(u)); if (!opts.length) return null;
+  const games = opts.reduce((a, o) => a + o[1], 0);
+  let r = Math.random() * opts.reduce((a, o) => a + Math.pow(o[2], .85), 0);
+  for (const o of opts) { r -= Math.pow(o[2], .85); if (r <= 0) return { uci: o[0], n: o[1], games }; }
+  return { uci: opts[0][0], n: opts[0][1], games };
+}
+
+/* ---------------- the style nudge ---------------- */
+const PVAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+function materialOf(fen, color) { let s = 0; for (const c of Object.values(boardMap(fen))) s += (c[0] === color ? 1 : -1) * PVAL[c[1].toLowerCase()]; return s; }
+// Extra centipawns a candidate move earns for fitting the player's habits. Capped, and only ever used
+// between moves Stockfish already rates close to the best, so the style never costs a whole piece.
+function styleBonus(p, fen, line) {
+  const w = p.w; const pv = line.pv || []; if (!pv.length) return 0;
+  const c = chessAt(fen); const me = c.turn(); const before = materialOf(fen, me);
+  const u = pv[0]; const mv = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || undefined }); if (!mv) return 0;
+  let b = 0;
+  if (/[+#]/.test(mv.san)) b += 8 * w.tactic;
+  if (mv.captured) b += 4 * w.tactic;
+  if (mv.piece === 'q' && mv.captured === 'q') b += 22 * w.trade;
+  else if (mv.captured && mv.piece !== 'p' && PVAL[mv.captured] === PVAL[mv.piece]) b += 8 * w.trade;
+  if (mv.piece === 'p') {
+    const map = boardMap(c.fen()); const ksq = Object.keys(map).find(s => map[s] === (me === 'w' ? 'bK' : 'wK'));
+    const f = mv.to.charCodeAt(0) - 97, kf = ksq ? ksq.charCodeAt(0) - 97 : 4, rank = +mv.to[1];
+    const advanced = me === 'w' ? rank >= 4 : rank <= 5;
+    if (advanced && Math.abs(f - kf) <= 1 && (kf >= 5 || kf <= 2)) b += 9 * w.storm;
+  }
+  // A sacrifice: two plies later in Stockfish's own line we are at least two points down, yet it still likes the move.
+  const n = pv.length >= 4 ? 4 : pv.length >= 2 ? 2 : 0;
+  for (let i = 1; i < n; i++) { const x = pv[i]; if (!c.move({ from: x.slice(0, 2), to: x.slice(2, 4), promotion: x[4] || undefined })) break; }
+  if (n && materialOf(c.fen(), me) - before <= -2) b += 18 * w.sac;
+  return clamp(b, -30, 30);
+}
+function pickPersonaLine(p, fen, lines, P) {
+  const ls = lines.filter(l => l && l.pv && l.pv.length); if (!ls.length) return null;
+  const sc = ls.map(lineScore); const best = Math.max(...sc);
+  const window = Math.max(30, P.temp * 1.5);
+  const cand = ls.map((l, i) => ({ l, s: sc[i] })).filter(x => x.s >= best - window);
+  const T = Math.max(P.temp, 8);
+  const ut = cand.map(x => x.s + (Math.abs(x.s) < 5000 ? styleBonus(p, fen, x.l) : 0));
+  const top = Math.max(...ut); const wts = ut.map(v => Math.exp(-(top - v) / T));
+  let r = Math.random() * wts.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < cand.length; i++) { r -= wts[i]; if (r <= 0) return cand[i].l; }
+  return cand[0].l;
+}
+
+/* ---------------- choosing an opponent ---------------- */
+const initials = (name) => name.split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase();
+function meter(label, v) {
+  const pct = Math.round(clamp(v, 0, 1) * 100);
+  return `<span class="om"><span class="om-l">${label}</span><span class="om-bar" role="img" aria-label="${label}: ${pct} out of 100"><i style="width:${Math.max(4, pct)}%"></i></span></span>`;
+}
+function firstMovesText(p) {
+  const f = (arr) => arr.slice(0, 3).map(([m, s]) => `${m} ${Math.round(s * 100)}%`).join(' · ');
+  return p.first ? `As White: ${f(p.first.w)}. Against 1.e4: ${f(p.first.e4)}. Against 1.d4: ${f(p.first.d4)}.` : '';
+}
+function oppCardHTML(p, sel) {
+  if (!p) return `<button class="opp-card" data-opp="" aria-pressed="${sel}"><span class="opp-av opp-sf" aria-hidden="true">${pieceSVG('bN')}</span>
+    <span class="opp-main"><b>Stockfish</b><small>The classic engine, from 400 to 2800 Elo</small><span class="opp-blurb">Plays its own best moves, weakened to the strength you pick. No opening book, no habits.</span></span></button>`;
+  return `<button class="opp-card" data-opp="${p.id}" aria-pressed="${sel}"><span class="opp-av" aria-hidden="true">${initials(p.name)}</span>
+    <span class="opp-main"><b>${esc(p.name)}</b><small>#${p.rank} · ${esc(p.fed)} · ${p.rating} FIDE · ${p.games.total} games</small>
+    <span class="opp-meters">${meter('Sharp', p.axes.sharp)}${meter('Trades queens', p.axes.trades)}${meter('Long games', p.axes.long)}</span>
+    <span class="opp-blurb">${esc(firstMovesText(p))}</span></span></button>`;
+}
+function renderOppPicker() {
+  const p = curPersona();
+  $('#oppPick').innerHTML = `<span class="opp-av${p ? '' : ' opp-sf'}" aria-hidden="true">${p ? initials(p.name) : pieceSVG('bN')}</span>
+    <span class="opp-now"><b>${esc(p ? `${p.name} style` : 'Stockfish')}</b><small>${p ? `#${p.rank} in the world · ${p.rating} FIDE` : 'The classic engine'}</small></span><span class="opp-change">Change</span>`;
+  $('#setupTitle').textContent = p ? `Play ${p.short} style` : 'Play Stockfish';
+}
+function renderOppModal() {
+  const id = S.settings.opp || '';
+  $('#oppGrid').innerHTML = oppCardHTML(null, !id) + PERSONA_LIST.map(p => oppCardHTML(p, p.id === id)).join('');
+  const src = PERSONA_LIST[0];
+  $('#oppSource').textContent = src ? `Built from ${PERSONA_LIST.reduce((a, p) => a + p.games.total, 0).toLocaleString('en-GB')} games published in The Week in Chess, ${src.games.from} to ${src.games.to}. Ratings: FIDE list of ${src.list}. Style bars compare the ten with each other.` : '';
+}
+function wireOpponents() {
+  $('#oppPick').addEventListener('click', () => { renderOppModal(); $('#oppModal').hidden = false; const cur = $('#oppGrid [aria-pressed="true"]'); if (cur) cur.focus({ preventScroll: true }); });
+  $('#oppClose').addEventListener('click', () => { $('#oppModal').hidden = true; });
+  $('#oppGrid').addEventListener('click', (e) => {
+    const b = e.target.closest('.opp-card'); if (!b) return;
+    const p = personaById(b.dataset.opp);
+    S.settings.opp = p ? p.id : null;
+    if (p) { S.settings.elo = clamp(Math.round(Math.min(p.rating, ELO_MAX) / ELO_STEP) * ELO_STEP, ELO_MIN, ELO_MAX); loadBook(p.id); }
+    $('#oppModal').hidden = true; renderSetup(); renderPlates(); renderSheet(); setClockNames(); save(); $('#oppPick').focus();
+  });
+  if (!personaById(S.settings.opp)) S.settings.opp = null; else loadBook(S.settings.opp);
+}
+
+/* =====================================================================
    Sound: synthesised wooden clacks and a small bell
    ===================================================================== */
 const Snd = {
@@ -884,7 +1009,7 @@ const Snd = {
    ===================================================================== */
 const S = {
   mode: 'idle',              // idle | play | paused | over | review
-  settings: { color: 'w', elo: 1200, tc: '3+2', sound: true, pieces: 'wood', board: 'wood' },
+  settings: { color: 'w', elo: 1200, opp: null, tc: '3+2', sound: true, pieces: 'wood', board: 'wood' },
   line: null,                // { startFen, fens[], moves[], names{w,b}, subs{w,b}, headers, result, reason, source }
   game: null,                // { playerColor, level, tc, clock:{w,b,running,last}, lastEngineScore }
   chess: null,               // live chess.js game
@@ -1216,9 +1341,9 @@ function updateClock() {
 function setClockNames() {
   if (!CLOCK.ready) return;
   const L = S.line; const cols = clockColors();
-  const nm = (c) => (L ? L.names[c] : S.mode === 'online' ? (c === 'w' ? 'White' : 'Black') : (c === S.settings.color || (S.settings.color === 'r' && c === 'w') ? 'You' : 'Stockfish'));
+  const nm = (c) => (L ? L.names[c] : S.mode === 'online' ? (c === 'w' ? 'White' : 'Black') : (c === S.settings.color || (S.settings.color === 'r' && c === 'w') ? 'You' : botName(curPersona())));
   for (const pos of ['Top', 'Bot']) {
-    const c = cols[pos]; $('#dcName' + pos).textContent = nm(c);
+    const c = cols[pos]; $('#dcName' + pos).textContent = String(nm(c)).replace(/ style$/, '');
     const ic = $('#dcIc' + pos); if (ic.dataset.c !== c) { ic.innerHTML = pieceSVG(c + 'K'); ic.dataset.c = c; }
   }
 }
@@ -1259,7 +1384,7 @@ function parseInfo(line) {
 }
 class Engine {
   constructor(worker) {
-    this.w = worker; this.q = []; this.cur = null; this.skill = null; this.mpv = 1;
+    this.w = worker; this.q = []; this.cur = null; this.skill = null; this.mpv = 1; this.contempt = 24;
     worker.onmessage = (e) => this.onLine(String(e.data));
     worker.onerror = (e) => { if (e && e.preventDefault) e.preventDefault(); };
     this.send('setoption name Hash value 16');
@@ -1280,6 +1405,7 @@ class Engine {
   next() {
     const job = this.q.shift(); if (!job) return; this.cur = job; job.lines = [];
     const mpv = job.multipv || 1; if (mpv !== this.mpv) { this.send(`setoption name MultiPV value ${mpv}`); this.mpv = mpv; }
+    const ct = job.contempt == null ? 24 : job.contempt; if (ct !== this.contempt) { this.send(`setoption name Contempt value ${ct}`); this.contempt = ct; }
     const sk = job.skill == null ? 20 : job.skill;
     if (sk !== this.skill) { this.send(`setoption name Skill Level value ${sk}`); this.skill = sk; }
     this.send(`position fen ${job.fen}`);
@@ -1313,25 +1439,26 @@ async function getPool() {
 /* =====================================================================
    Game flow
    ===================================================================== */
-function playerNames(playerColor, level) {
-  const eng = 'Stockfish', you = 'You';
+function playerNames(playerColor, level, persona) {
+  const eng = botName(persona), you = 'You';
   const names = playerColor === 'w' ? { w: you, b: eng } : { w: eng, b: you };
-  const subs = playerColor === 'w' ? { w: 'White', b: eloLabel(level) } : { w: eloLabel(level), b: 'Black' };
+  const lab = persona ? `Bot · ≈${level}` : eloLabel(level);
+  const subs = playerColor === 'w' ? { w: 'White', b: lab } : { w: lab, b: 'Black' };
   return { names, subs };
 }
 function startGame() {
   Snd.ensure(); trainerStop();
   const st = S.settings; const pc = st.color === 'r' ? (Math.random() < .5 ? 'w' : 'b') : st.color;
-  const tc = tcById(st.tc); const { names, subs } = playerNames(pc, st.elo);
+  const tc = tcById(st.tc); const persona = curPersona(); const { names, subs } = playerNames(pc, st.elo, persona);
   S.engineToken++; if (ENG.main) ENG.main.cancelAll();
   S.chess = new Chess();
   S.line = newLine(START_FEN, names, subs, { headers: { Date: new Date().toISOString().slice(0, 10).replace(/-/g, '.') } });
-  S.game = { playerColor: pc, elo: st.elo, tc: tc.id, clock: { w: tc.base * 1000, b: tc.base * 1000, running: null, last: 0 }, lastEngineScore: null };
+  S.game = { playerColor: pc, elo: st.elo, opp: persona ? persona.id : null, tc: tc.id, clock: { w: tc.base * 1000, b: tc.base * 1000, running: null, last: 0 }, lastEngineScore: null };
   S.view = 0; S.sel = null; S.legal = []; S.orientation = pc; S.review = null; S.bannerOpen = false;
   if (ENG.main) ENG.main.send('ucinewgame');
   setMode('play');
   renderCoords(); renderPieces(START_FEN, false); renderAll();
-  announce(`New game. You play ${pc === 'w' ? 'White' : 'Black'} against Stockfish at about ${st.elo} Elo.`);
+  announce(`New game. You play ${pc === 'w' ? 'White' : 'Black'} against ${persona ? `a bot in the style of ${persona.name}` : 'Stockfish'} at about ${st.elo} Elo.`);
   if (pc === 'b') engineMove();
   save();
 }
@@ -1350,7 +1477,7 @@ function afterMove(mv) {
   if (S.chess.in_check()) Snd.check(); else if (mv.captured) Snd.capture(); else Snd.move();
   if (tc.base) Snd.press();
   renderPieces(L.fens[S.view]); renderAll();
-  announce(`${mv.color === g.playerColor ? 'You' : 'Stockfish'} played ${spokenSan(mv.san)}.`);
+  announce(`${mv.color === g.playerColor ? 'You' : botName(personaById(g.opp))} played ${spokenSan(mv.san)}.`);
   const end = checkEnd(mv);
   if (end) { finishGame(end.result, end.reason); return; }
   if (S.chess.turn() !== g.playerColor) engineMove();
@@ -1367,11 +1494,17 @@ function checkEnd(mv) {
   return null;
 }
 async function engineMove() {
-  const token = ++S.engineToken; const g = S.game; const P = eloParams(g.elo);
+  const token = ++S.engineToken; const g = S.game; const P = eloParams(g.elo); const persona = personaById(g.opp);
   setThinking(true);
   const t0 = performance.now(); const fen = S.chess.fen();
-  let uci = null;
-  if (P.blunder && Math.random() < P.blunder) {
+  let uci = null, fromBook = null;
+  if (persona) {
+    fromBook = await bookMove(persona, fen, S.line.moves.length, g.elo);
+    if (token !== S.engineToken || S.mode !== 'play') return;
+    if (fromBook) { uci = fromBook.uci; await sleep(280 + Math.random() * 420); }
+  }
+  if (uci) { /* book move */ }
+  else if (P.blunder && Math.random() < P.blunder) {
     const ms = S.chess.moves({ verbose: true }); const m = ms[Math.floor(Math.random() * ms.length)];
     uci = m.from + m.to + (m.promotion || '');
     await sleep(350 + Math.random() * 500);
@@ -1381,10 +1514,10 @@ async function engineMove() {
     if (!eng) { setThinking(false); toast('Stockfish is not running, so it cannot reply. Reload the page.'); return; }
     let mt = P.movetime; const tc = tcById(g.tc);
     if (tc.base) { const rem = Math.max(0, remaining(S.chess.turn())); mt = Math.min(mt, Math.max(40, rem / 30 + tc.inc * 600)); }
-    const res = await eng.search({ fen, depth: P.depth, movetime: mt, skill: 20, multipv: P.multipv });
+    const res = await eng.search({ fen, depth: P.depth, movetime: mt, skill: 20, multipv: persona ? Math.max(4, P.multipv) : P.multipv, contempt: persona ? persona.w.contempt : undefined });
     if (token !== S.engineToken || S.mode !== 'play') return;
     if (!res || !res.bestmove) { setThinking(false); return; }
-    const pick = P.multipv > 1 ? pickByTemperature(res.lines || [], P.temp) : null;
+    const pick = persona ? pickPersonaLine(persona, fen, res.lines || [], P) : P.multipv > 1 ? pickByTemperature(res.lines || [], P.temp) : null;
     uci = pick ? pick.pv[0] : res.bestmove; g.lastEngineScore = res.info;
     const minDelay = 260 + Math.random() * 380; const el = performance.now() - t0;
     if (el < minDelay) await sleep(minDelay - el);
@@ -1392,6 +1525,12 @@ async function engineMove() {
   if (token !== S.engineToken || S.mode !== 'play') return;
   setThinking(false);
   const mv = S.chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || undefined });
+  if (persona && mv) {
+    // A line under the board: where the move comes from
+    if (fromBook) { g.inBook = true; g.note = `${persona.short} chose ${mv.san} here in ${fromBook.n} of ${fromBook.games} game${fromBook.games === 1 ? '' : 's'}.`; }
+    else if (g.inBook) { g.inBook = false; g.note = `Out of ${persona.short}'s games now. From here the style engine decides.`; }
+    else g.note = '';
+  }
   if (mv) afterMove(mv);
 }
 function setThinking(on) { S.thinking = on; renderPlates(); boardEl().classList.toggle('can-move', canUserMove()); }
@@ -1412,7 +1551,7 @@ function resultSentence() {
   const g = S.game; const w = L.result === '1-0' ? 'w' : L.result === '0-1' ? 'b' : null;
   let who;
   if (!w) who = 'Drawn';
-  else if (g && L.source === 'play') who = w === g.playerColor ? 'You win' : 'Stockfish wins';
+  else if (g && L.source === 'play') who = w === g.playerColor ? 'You win' : `${L.names[w]} wins`;
   else if (L.source === 'online' && g && g.you) who = w === g.you ? 'You win' : `${L.names[w]} wins`;
   else if (L.source === 'online') who = `${L.names[w]} wins`;
   else who = (w === 'w' ? 'White' : 'Black') + ' wins';
@@ -1453,7 +1592,8 @@ function offerDraw() {
   const sc = g.lastEngineScore; const plies = L.moves.length;
   let engCp = null; if (sc) engCp = sc.mate != null ? (sc.mate > 0 ? 9999 : -9999) : sc.cp;
   const fewPieces = Object.keys(boardMap(S.chess.fen())).length <= 8;
-  if (engCp != null && (plies >= 40 || fewPieces) && engCp <= 15) { finishGame('1/2-1/2', 'agreement'); }
+  const op = personaById(g.opp); const need = op ? clamp(15 - (op.w.contempt - 24) / 2, -10, 25) : 15;
+  if (engCp != null && (plies >= 40 || fewPieces) && engCp <= need) { finishGame('1/2-1/2', 'agreement'); }
   else toast(plies < 40 && !fewPieces ? 'Stockfish declines. It wants to play on for now.' : 'Stockfish declines. It likes its position.');
 }
 function abandonGame() {
@@ -1512,7 +1652,8 @@ function renderPlates() {
     if (L) return { n: L.names[c], s: L.subs[c] };
     if (S.mode === 'online' && window.WP_ONLINE) return window.WP_ONLINE.plate(c);
     const pc = S.settings.color === 'b' ? 'b' : 'w';
-    return c === pc ? { n: 'You', s: c === 'w' ? 'White' : 'Black' } : { n: 'Stockfish', s: eloLabel(S.settings.elo) };
+    const op = curPersona();
+    return c === pc ? { n: 'You', s: c === 'w' ? 'White' : 'Black' } : { n: botName(op), s: op ? `Bot · ≈${S.settings.elo}` : eloLabel(S.settings.elo) };
   };
   const plate = (c) => {
     const { n, s } = nameOf(c);
@@ -1529,7 +1670,7 @@ function renderSheet() {
   const L = S.line; const list = $('#mlist');
   const tc = S.game ? tcById(S.game.tc) : (L ? null : tcById(S.settings.tc));
   $('#sheetTc').textContent = L && L.source === 'pgn' ? (L.headers.Date || '') : tc ? (tc.base ? `${tc.id} · ${tc.kind}` : 'Untimed') : '';
-  const names = L ? L.names : (() => { const pc = S.settings.color === 'b' ? 'b' : 'w'; return pc === 'w' ? { w: 'You', b: 'Stockfish' } : { w: 'Stockfish', b: 'You' }; })();
+  const names = L ? L.names : (() => { const pc = S.settings.color === 'b' ? 'b' : 'w'; const bn = botName(curPersona()); return pc === 'w' ? { w: 'You', b: bn } : { w: bn, b: 'You' }; })();
   $('#sheetPlayers').innerHTML = `<dt>White</dt><dd>${esc(names.w)}</dd><dt>Black</dt><dd>${esc(names.b)}</dd>`;
   let html = '';
   const moves = L ? L.moves : [];
@@ -1561,7 +1702,7 @@ function renderBanner() {
   const el = $('#banner'); const L = S.line;
   if (!(S.mode === 'over' && S.bannerOpen && L)) { el.hidden = true; return; }
   const g = S.game; const w = L.result === '1-0' ? 'w' : L.result === '0-1' ? 'b' : null;
-  const title = !w ? 'Drawn' : (g && w === g.playerColor ? 'You win' : 'Stockfish wins');
+  const title = !w ? 'Drawn' : (g && w === g.playerColor ? 'You win' : `${L.names[w]} wins`);
   const kicker = { checkmate: 'Checkmate', stalemate: 'Stalemate', 'on time': 'Flag fall', resignation: 'Resigned', agreement: 'Draw agreed' }[L.reason] || 'Game over';
   el.innerHTML = `<div class="banner-card" role="dialog" aria-label="Game result"><button class="banner-close" id="bannerClose" aria-label="Close">×</button>
     <div class="banner-kicker">${kicker}</div><div class="banner-title">${title}</div><p class="banner-sub">${esc(resultSentence())}</p>
@@ -1581,6 +1722,7 @@ function renderNav() {
   else if (S.mode === 'puzzle' && T.kind === 'puzzle' && PZ.p) note.textContent = ({ intro: 'Watch the opponent\u2019s move…', solving: `Your turn: find the best move for ${colorName(PZ.color)}.`, reply: 'Correct! Keep going…', wrong: 'Not this one. Try again.', solved: 'Solved!', solvedHelp: 'Solved with help.', showing: 'Showing the solution…', shown: 'Solution shown.' })[PZ.state] || '';
   else if (S.mode === 'lesson' && T.kind === 'lesson' && LS.line && LS.phase === 'practice') note.textContent = ({ await: `Your move as ${colorName(LS.color)}.`, reply: 'Opponent to move…', wrong: 'Not the book move. Try again.', done: 'Line complete.' })[LS.state] || '';
   else if (S.mode === 'online' && window.WP_ONLINE) note.textContent = window.WP_ONLINE.note();
+  else if (S.mode === 'play' && S.game && S.game.note && S.view === n) note.textContent = S.game.note;
   else if (S.mode === 'idle') note.textContent = '';
   else note.textContent = '';
 }
@@ -1859,9 +2001,9 @@ function loadPGNForReview(text) {
 function buildPGN() {
   const L = S.line; if (!L || !L.moves.length) return '';
   const g = S.game; const tc = g ? tcById(g.tc) : null;
-  const h = Object.assign({ Event: L.source === 'play' ? 'Woodpusher vs Stockfish' : 'Casual game', Site: 'Woodpusher', Date: '????.??.??', Round: '-', White: L.names.w, Black: L.names.b, Result: L.result }, L.source === 'pgn' ? L.headers : {});
+  const h = Object.assign({ Event: L.source === 'play' ? `Woodpusher vs ${g && personaById(g.opp) ? personaById(g.opp).short + '-style bot' : 'Stockfish'}` : 'Casual game', Site: 'Woodpusher', Date: '????.??.??', Round: '-', White: L.names.w, Black: L.names.b, Result: L.result }, L.source === 'pgn' ? L.headers : {});
   h.Result = L.result; if (tc) h.TimeControl = tc.base ? `${tc.base}+${tc.inc}` : '-';
-  if (L.source === 'play' && g) { h[g.playerColor === 'w' ? 'Black' : 'White'] = `Stockfish (about ${g.elo} Elo)`; }
+  if (L.source === 'play' && g) { const op = personaById(g.opp); h[g.playerColor === 'w' ? 'Black' : 'White'] = op ? `${op.short}-style bot (Woodpusher, about ${g.elo} Elo)` : `Stockfish (about ${g.elo} Elo)`; }
   if (L.startFen !== START_FEN) { h.SetUp = '1'; h.FEN = L.startFen; }
   let out = Object.entries(h).map(([k, v]) => `[${k} "${String(v).replace(/"/g, '\\"')}"]`).join('\n') + '\n\n';
   const p = L.startFen.split(' '); let no = +p[5] || 1; let body = '';
@@ -1885,7 +2027,7 @@ function snapshot() {
   return {
     v: 1, settings: S.settings, mode: S.mode, orientation: S.orientation, view: S.view,
     line: L ? { startFen: L.startFen, sans: L.moves.map(m => m.san), names: L.names, subs: L.subs, headers: L.headers, result: L.result, reason: L.reason, source: L.source } : null,
-    game: g ? { playerColor: g.playerColor, elo: g.elo, tc: g.tc, histId: g.histId, takebacks: g.takebacks || 0, clock: { w: Math.max(0, remaining('w')), b: Math.max(0, remaining('b')), running: g.clock.running } } : null,
+    game: g ? { playerColor: g.playerColor, elo: g.elo, opp: g.opp || null, inBook: !!g.inBook, tc: g.tc, histId: g.histId, takebacks: g.takebacks || 0, clock: { w: Math.max(0, remaining('w')), b: Math.max(0, remaining('b')), running: g.clock.running } } : null,
     review: S.review ? { key: S.review.key, evals: S.review.evals, best: S.review.best, pv: S.review.pv } : null,
   };
 }
@@ -1902,7 +2044,7 @@ function restore(d) {
     for (const san of d.line.sans) { const m = c.move(san); if (!m) return false; m.uci = m.from + m.to + (m.promotion || ''); moves.push(m); fens.push(c.fen()); }
     S.line = Object.assign(newLine(d.line.startFen, d.line.names, d.line.subs), { headers: d.line.headers || {}, result: d.line.result, reason: d.line.reason, source: d.line.source });
     S.line.fens = fens; S.line.moves = moves; S.chess = c;
-    if (d.game) S.game = { playerColor: d.game.playerColor, elo: d.game.elo || LEVEL_TO_ELO[d.game.level] || ELO_DEFAULT, tc: d.game.tc, histId: d.game.histId, takebacks: d.game.takebacks || 0, clock: { w: d.game.clock.w, b: d.game.clock.b, running: d.game.clock.running, last: performance.now() }, lastEngineScore: null };
+    if (d.game) S.game = { playerColor: d.game.playerColor, elo: d.game.elo || LEVEL_TO_ELO[d.game.level] || ELO_DEFAULT, opp: personaById(d.game.opp) ? d.game.opp : null, inBook: !!d.game.inBook, tc: d.game.tc, histId: d.game.histId, takebacks: d.game.takebacks || 0, clock: { w: d.game.clock.w, b: d.game.clock.b, running: d.game.clock.running, last: performance.now() }, lastEngineScore: null };
     S.orientation = d.orientation || 'w';
     S.view = clamp(d.view ?? fens.length - 1, 0, fens.length - 1);
     if (d.review && d.review.key === lineKey(S.line)) S.review = { key: d.review.key, evals: d.review.evals || [], best: d.review.best || [], pv: d.review.pv || [], cls: [], acc: [], token: 0, done: false };
@@ -1920,7 +2062,7 @@ function restore(d) {
    Setup controls and wiring
    ===================================================================== */
 function renderSetup() {
-  const st = S.settings;
+  const st = S.settings; renderOppPicker();
   document.querySelectorAll('#colorSeg .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.color === st.color)));
   $('#lvl').value = st.elo; $('#lvlOut').textContent = eloLabel(st.elo); $('#lvlBlurb').textContent = eloBand(st.elo)[2];
   $('#lvl').setAttribute('aria-valuetext', `About ${st.elo} Elo, ${eloBand(st.elo)[1]}`);
@@ -2730,6 +2872,7 @@ function boot(hot) {
   if (data && data.settings) { Object.assign(S.settings, data.settings); Snd.on = S.settings.sound !== false; }
   if (!S.settings.elo) S.settings.elo = LEVEL_TO_ELO[S.settings.level] || ELO_DEFAULT;
   S.settings.elo = clamp(Math.round(S.settings.elo / ELO_STEP) * ELO_STEP, ELO_MIN, ELO_MAX); delete S.settings.level;
+  wireOpponents();
   renderSetup();
   $('#boardWrap').dataset.board = curBoard();
   S.orientation = S.settings.color === 'b' ? 'b' : 'w';

@@ -9,7 +9,7 @@ const trainer = read(F('trainer.js')); const online = read(F('online.js'));
 const must = (cond, msg) => { if (!cond) { console.error('build failed:', msg); process.exit(1); } };
 must(html.includes('/*TRAINER*/'), 'trainer marker');
 must(html.includes('<!--DATA-->'), 'data marker');
-const styles = read(F('styles.js')) + '\n' + read(F('profile.js')) + '\n' + read(F('opening.js'));
+const styles = ['styles.js', 'profile.js', 'opening.js', 'personas.js'].map(f => read(F(f))).join('\n');
 must(html.includes('/*STYLES*/'), 'styles marker');
 html = html.replace('/*STYLES*/', () => styles);
 html = html.replace('/*TRAINER*/', () => trainer + '\n' + online);
@@ -23,7 +23,7 @@ html = html.replace('<meta name="claude:viewport-fit-sides" content="cover">\n',
 html = html.replace(/<link rel="preconnect"[^>]*>\n/g, '').replace(/<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.com[^"]*">/, '<link rel="stylesheet" href="/fonts/fonts.css">');
 must(!html.includes('fonts.googleapis.com'), 'google fonts removed');
 html = html.replace('<span>Keys: ← → step · Home / End · F flips</span>', '<span><a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a> · Keys: ← → step · Home / End · F flips</span>');
-for (const [a, b] of [["url: 'stockfish.js'", "url: '/stockfish.js'"], ["url: 'stockfish.asm.js'", "url: '/stockfish.asm.js'"], ["s.src = 'chess.js'", "s.src = '/chess.js'"]]) { must(app.includes(a), a); app = app.replace(a, b); }
+for (const [a, b] of [["const BOOK_BASE = 'books/';", "const BOOK_BASE = '/books/';"], ["url: 'stockfish.js'", "url: '/stockfish.js'"], ["url: 'stockfish.asm.js'", "url: '/stockfish.asm.js'"], ["s.src = 'chess.js'", "s.src = '/chess.js'"]]) { must(app.includes(a), a); app = app.replace(a, b); }
 const cut = html.indexOf('</style>') + '</style>'.length;
 const page = `<!doctype html>
 <html lang="en">
@@ -45,7 +45,9 @@ ${html.slice(cut)}
 fs.mkdirSync(P(''), { recursive: true });
 fs.writeFileSync(P('index.html'), page);
 fs.writeFileSync(P('app.js'), app.trim() + '\n');
-fs.writeFileSync(P('data.js'), read(F('data/openings.js')) + '\n' + read(F('data/puzzles.js')));
+fs.writeFileSync(P('data.js'), ['openings.js', 'puzzles.js', 'personas.js'].filter(f => fs.existsSync(F('data/' + f))).map(f => read(F('data/' + f))).join('\n'));
+fs.rmSync(P('books'), { recursive: true, force: true }); fs.mkdirSync(P('books'), { recursive: true });
+if (fs.existsSync(F('data/books'))) for (const f of fs.readdirSync(F('data/books'))) fs.copyFileSync(F('data/books/' + f), P('books/' + f));
 for (const f of ['stockfish.js', 'stockfish.wasm', 'stockfish.asm.js', 'chess.js']) fs.copyFileSync(F('vendor/' + f), P(f));
 fs.copyFileSync(F('privacy.html'), P('privacy.html'));
 fs.copyFileSync(F('favicon.svg'), P('favicon.svg'));

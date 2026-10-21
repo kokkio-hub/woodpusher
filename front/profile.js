@@ -22,7 +22,7 @@ function recordStockfishGame() {
   const w = L.result === '1-0' ? 'w' : L.result === '0-1' ? 'b' : null;
   const score = w ? (w === g.playerColor ? 1 : 0) : 0.5;
   if (!g.histId) g.histId = histId();
-  const rec = { id: g.histId, at: Date.now(), kind: 'sf', elo: g.elo, color: g.playerColor, score, tc: g.tc, plies: L.moves.length, takebacks: g.takebacks || 0, key: lineKey(L), acc: null };
+  const rec = { id: g.histId, at: Date.now(), kind: 'sf', elo: g.elo, opp: g.opp || null, color: g.playerColor, score, tc: g.tc, plies: L.moves.length, takebacks: g.takebacks || 0, key: lineKey(L), acc: null };
   const old = HIST.games.find(x => x.id === rec.id);
   if (old) Object.assign(old, rec, { acc: old.acc }); else HIST.games.unshift(rec);
   saveHist();

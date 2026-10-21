@@ -214,7 +214,7 @@ button { font: inherit; color: inherit; }
 .side { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 16px; }
 @media (min-width: 980px) { .side { width: 360px; } }
 .clock-stand { position: relative; }
-.dclock { display: flex; flex-direction: column; gap: 6px; width: 250px; max-width: 100%; }
+.dclock { display: flex; flex-direction: column; gap: 6px; width: 290px; max-width: 100%; }
 .dc-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 5px 5px 5px 10px; border-radius: 7px; background: rgba(0,0,0,.28); border: 1px solid rgba(201,139,82,.28); transition: border-color .2s, background .2s; }
 .dc-ic { width: 22px; height: 22px; display: block; }
 .dc-ic svg { width: 100%; height: 100%; display: block; }
@@ -407,6 +407,30 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .danger-link { background: none; border: 0; padding: 0; color: #ffb4a8; cursor: pointer; font: 600 13.5px var(--f-body); }
 .account-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
 
+/* ---------- opponents ---------- */
+.opp-pick { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(201,139,82,.4); background: rgba(0,0,0,.22); color: var(--ivory); cursor: pointer; text-align: left; transition: border-color .15s, background .15s; }
+.opp-pick:hover { border-color: var(--brass); background: rgba(201,139,82,.1); }
+.opp-av { width: 40px; height: 40px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--brass); color: var(--leather); font: 600 15px/1 var(--f-display); letter-spacing: .02em; }
+.opp-av.opp-sf { background: rgba(201,139,82,.14); box-shadow: inset 0 0 0 1px rgba(201,139,82,.5); }
+.opp-av svg { width: 30px; height: 30px; display: block; }
+.opp-now { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.opp-now b { font: 600 16px/1.2 var(--f-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opp-now small, .opp-main small { font-size: 13px; color: var(--ivory-dim); }
+.opp-change { font-size: 13px; font-weight: 600; color: var(--brass-hi); }
+.modal.opp { width: min(860px, 100%); }
+.opp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; }
+.opp-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px; border-radius: 7px; border: 1px solid rgba(201,139,82,.3); background: rgba(0,0,0,.22); color: var(--ivory); cursor: pointer; text-align: left; transition: border-color .15s, background .15s; }
+.opp-card:hover { border-color: var(--brass); }
+.opp-card[data-opp=""] { grid-column: 1 / -1; }
+.opp-card[aria-pressed="true"] { border-color: var(--brass-hi); background: rgba(201,139,82,.16); box-shadow: inset 0 0 0 1px var(--brass-hi); }
+.opp-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.opp-main b { font: 600 17px/1.2 var(--f-display); }
+.opp-blurb { font-size: 13px; color: var(--ivory-dim); line-height: 1.4; }
+.opp-meters { display: grid; gap: 3px; margin: 4px 0 2px; }
+.om { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 8px; font-size: 12px; color: var(--ivory-dim); }
+.om-bar { height: 6px; border-radius: 3px; background: rgba(0,0,0,.35); box-shadow: inset 0 0 0 1px rgba(201,139,82,.22); overflow: hidden; }
+.om-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--brass-lo), var(--brass)); border-radius: 3px; }
+
 /* ---------- settings ---------- */
 .modal.settings { width: min(760px, 100%); }
 .set-section { margin-top: 16px; }
@@ -587,7 +611,11 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 
     <section class="card" id="setupCard" aria-labelledby="setupTitle">
       <h2 id="setupTitle">Play Stockfish</h2>
-      <p class="card-sub">Pick your side, a strength and a clock.</p>
+      <p class="card-sub">Pick an opponent, your side, a strength and a clock.</p>
+      <div class="field">
+        <span class="field-label" id="lblOpp">Opponent</span>
+        <button class="opp-pick" id="oppPick" aria-haspopup="dialog" aria-describedby="lblOpp"></button>
+      </div>
       <div class="field">
         <span class="field-label" id="lblColor">Your pieces</span>
         <div class="seg" role="group" aria-labelledby="lblColor" id="colorSeg">
@@ -703,6 +731,15 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
     <p>Select all and copy it to save the game or open it on another site.</p>
     <textarea id="exportText" readonly></textarea>
     <div class="modal-actions"><span class="sp"></span><button class="btn" id="expClose">Close</button></div>
+  </div>
+</div>
+<div class="modal-back" id="oppModal" hidden>
+  <div class="modal opp" role="dialog" aria-modal="true" aria-labelledby="oppTitle">
+    <h2 id="oppTitle" style="font-family:var(--f-display);font-weight:600;color:var(--brass-hi);margin:0;font-size:22px">Choose your opponent</h2>
+    <p>The top 10 of the world rankings, as bots. Each one plays the player's real openings, then a style tuned to their games. They are computer imitations, not the players.</p>
+    <div class="opp-grid" id="oppGrid"></div>
+    <p class="fine" id="oppSource" style="margin-top:12px"></p>
+    <div class="modal-actions"><span class="sp"></span><button class="btn" id="oppClose">Close</button></div>
   </div>
 </div>
 <div class="modal-back" id="settingsModal" hidden>

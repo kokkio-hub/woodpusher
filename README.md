@@ -4,6 +4,7 @@ Chess on a hand-drawn board: play people online with matchmaking, play Stockfish
 
 - **Online play**: accounts, Glicko-2 ratings per time control (bullet, blitz, rapid, classical), matchmaking that widens the rating range the longer you wait, friend-challenge links, draw offers, rematches, abort, claim-the-win when an opponent leaves.
 - **The server is the referee**: every move is checked for legality on the server, and the clocks run on the server. Games survive a server restart (for example a new deploy) without anyone losing time.
+- **Top-10 opponents**: bots in the style of the FIDE top 10. Each plays the player's real openings, from a book built out of their over-the-board games, then Stockfish picks among its best moves with a nudge towards that player's habits (sharpness, queen trades, sacrifices, pawn storms, how hard they avoid draws).
 - **Eight piece styles and six boards**, from club wood and antique ivory to frosted and modern glass, picked in Settings.
 - **Offline features** run in the browser: Stockfish 10 (WebAssembly), 94 engine-checked puzzles, 18 openings with 49 annotated lines, and full game review.
 
@@ -61,6 +62,15 @@ test/          end-to-end tests
 ```
 
 After changing anything in `front/`, run `npm run build:front` to rebuild `public/`.
+
+## Updating the top-10 opponents
+
+The books and style profiles are built from The Week in Chess (theweekinchess.com), which publishes every over-the-board game as free weekly PGN files.
+
+1. Download and unzip the weekly issues you want (for example the last three years) into one folder.
+2. Edit the player list and `LIST` at the top of `tools/build_personas.py` if the rankings changed.
+3. Run `python3 tools/build_personas.py path/to/folder` (needs `pip install chess`). This writes `front/data/personas.js` and `front/data/books/`.
+4. Run `npm run build:front`.
 
 ## Tests
 
