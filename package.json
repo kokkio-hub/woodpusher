@@ -26,8 +26,7 @@
   },
   "devDependencies": {
     "@fontsource/carlito": "5.2.5",
-    "@fontsource/im-fell-english": "5.2.5",
-    "@fontsource/im-fell-english-sc": "5.2.5",
+    "@fontsource/josefin-sans": "5.2.5",
     "@fontsource/share-tech-mono": "5.2.5",
     "socket.io-client": "4.8.1"
   }
