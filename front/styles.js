@@ -313,7 +313,7 @@ function wireSettings() {
   });
   $('#lookSeg').addEventListener('click', (e) => {
     const b = e.target.closest('.seg-btn'); if (!b) return;
-    S.settings.look = b.dataset.look === 'light' ? 'light' : 'dark'; applyTheme(); renderSettings(); save(); b.focus();
+    S.settings.look = b.dataset.look === 'light' ? 'light' : 'dark'; S.settings.lookChosen = true; applyTheme(); renderSettings(); save(); b.focus();
   });
   $('#setSound').addEventListener('change', (e) => { Snd.on = e.target.checked; S.settings.sound = Snd.on; if (Snd.on) Snd.move(); save(); });
 }

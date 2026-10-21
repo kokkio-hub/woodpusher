@@ -1,1 +1,1 @@
-try { var wpd = JSON.parse(localStorage.getItem('woodpusher.v1') || 'null'); if (wpd && wpd.settings && wpd.settings.look === 'light') document.documentElement.setAttribute('data-look', 'light'); } catch (e) {}
+(function () { var dark = false; try { var s = (JSON.parse(localStorage.getItem('woodpusher.v1') || 'null') || {}).settings; dark = !!(s && s.look === 'dark' && s.lookChosen); } catch (e) {} if (!dark) document.documentElement.setAttribute('data-look', 'light'); })();

@@ -638,7 +638,7 @@ function wireSettings() {
   });
   $('#lookSeg').addEventListener('click', (e) => {
     const b = e.target.closest('.seg-btn'); if (!b) return;
-    S.settings.look = b.dataset.look === 'light' ? 'light' : 'dark'; applyTheme(); renderSettings(); save(); b.focus();
+    S.settings.look = b.dataset.look === 'light' ? 'light' : 'dark'; S.settings.lookChosen = true; applyTheme(); renderSettings(); save(); b.focus();
   });
   $('#setSound').addEventListener('change', (e) => { Snd.on = e.target.checked; S.settings.sound = Snd.on; if (Snd.on) Snd.move(); save(); });
 }
@@ -1020,7 +1020,7 @@ const Snd = {
    ===================================================================== */
 const S = {
   mode: 'idle',              // idle | play | paused | over | review
-  settings: { color: 'w', elo: 1200, opp: null, tc: '3+2', sound: true, pieces: 'wood', board: 'wood', look: 'dark' },
+  settings: { color: 'w', elo: 1200, opp: null, tc: '3+2', sound: true, pieces: 'wood', board: 'wood', look: 'light' },
   line: null,                // { startFen, fens[], moves[], names{w,b}, subs{w,b}, headers, result, reason, source }
   game: null,                // { playerColor, level, tc, clock:{w,b,running,last}, lastEngineScore }
   chess: null,               // live chess.js game
@@ -2883,12 +2883,14 @@ function boot(hot) {
   if (data && data.settings) { Object.assign(S.settings, data.settings); Snd.on = S.settings.sound !== false; }
   if (!S.settings.elo) S.settings.elo = LEVEL_TO_ELO[S.settings.level] || ELO_DEFAULT;
   S.settings.elo = clamp(Math.round(S.settings.elo / ELO_STEP) * ELO_STEP, ELO_MIN, ELO_MAX); delete S.settings.level;
+  if (!S.settings.lookChosen) S.settings.look = 'light';   // light is the default; dark only when someone picked it
   wireOpponents(); applyTheme();
   renderSetup();
   $('#boardWrap').dataset.board = curBoard();
   S.orientation = S.settings.color === 'b' ? 'b' : 'w';
   layoutBoard(); renderCoords();
   const ok = restore(data);
+  if (!S.settings.lookChosen) S.settings.look = 'light'; applyTheme();   // restore() re-reads the saved settings
   if (!ok) { setMode('idle'); renderPieces(START_FEN, false); renderAll(); }
   requestAnimationFrame(tick);
   setTimeout(() => { buildOverlays(); buildQuickTextures(); scheduleTextureUpgrade(); watchZoom(); startOpening(); }, 0);

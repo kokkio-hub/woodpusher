@@ -3,7 +3,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Carlito:ital,wght@0,400;0,700;1,400;1,700&family=Share+Tech+Mono&display=swap">
-<script>/*LOOK*/try { var wpd = JSON.parse(localStorage.getItem('woodpusher.v1') || 'null'); if (wpd && wpd.settings && wpd.settings.look === 'light') document.documentElement.setAttribute('data-look', 'light'); } catch (e) {}</script>
+<script>/*LOOK*/(function () { var dark = false; try { var s = (JSON.parse(localStorage.getItem('woodpusher.v1') || 'null') || {}).settings; dark = !!(s && s.look === 'dark' && s.lookChosen); } catch (e) {} if (!dark) document.documentElement.setAttribute('data-look', 'light'); })();</script>
 <style>
 /* Layout: a club-room desk in espresso leather, coloured after the logo. The wooden board holds the left of the table; a tan-trimmed stand on the right carries the twin-dial clock, the controls and a paper score sheet. */
 :root {
@@ -1167,7 +1167,7 @@ const Snd = {
    ===================================================================== */
 const S = {
   mode: 'idle',              // idle | play | paused | over | review
-  settings: { color: 'w', elo: 1200, opp: null, tc: '3+2', sound: true, pieces: 'wood', board: 'wood', look: 'dark' },
+  settings: { color: 'w', elo: 1200, opp: null, tc: '3+2', sound: true, pieces: 'wood', board: 'wood', look: 'light' },
   line: null,                // { startFen, fens[], moves[], names{w,b}, subs{w,b}, headers, result, reason, source }
   game: null,                // { playerColor, level, tc, clock:{w,b,running,last}, lastEngineScore }
   chess: null,               // live chess.js game
@@ -2305,12 +2305,14 @@ function boot(hot) {
   if (data && data.settings) { Object.assign(S.settings, data.settings); Snd.on = S.settings.sound !== false; }
   if (!S.settings.elo) S.settings.elo = LEVEL_TO_ELO[S.settings.level] || ELO_DEFAULT;
   S.settings.elo = clamp(Math.round(S.settings.elo / ELO_STEP) * ELO_STEP, ELO_MIN, ELO_MAX); delete S.settings.level;
+  if (!S.settings.lookChosen) S.settings.look = 'light';   // light is the default; dark only when someone picked it
   wireOpponents(); applyTheme();
   renderSetup();
   $('#boardWrap').dataset.board = curBoard();
   S.orientation = S.settings.color === 'b' ? 'b' : 'w';
   layoutBoard(); renderCoords();
   const ok = restore(data);
+  if (!S.settings.lookChosen) S.settings.look = 'light'; applyTheme();   // restore() re-reads the saved settings
   if (!ok) { setMode('idle'); renderPieces(START_FEN, false); renderAll(); }
   requestAnimationFrame(tick);
   setTimeout(() => { buildOverlays(); buildQuickTextures(); scheduleTextureUpgrade(); watchZoom(); startOpening(); }, 0);
