@@ -59,11 +59,12 @@ const oppName = () => { const g = ON.game; if (!g || !S.line) return 'Your oppon
 
 async function loadMe() {
   try { const d = await api('/me'); ON.me = d.user; } catch (e) { ON.me = null; }
-  ON.loaded = true;
+  ON.loaded = true; renderUserSection();
 }
 async function loadMyGames() {
   if (!ON.me) { ON.games = null; return; }
   try { const d = await api('/users/' + encodeURIComponent(ON.me.username)); ON.games = d.games; ON.me.ratings = d.ratings; } catch (e) { ON.games = []; }
+  renderUserSection();
   if (S.mode === 'online' && !ON.game) renderOnlinePanel();
 }
 
@@ -400,6 +401,9 @@ window.WP_ONLINE = {
   canMove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() === ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
   leave: leaveOnline, boot: bootOnline, tc: () => ON.tc,
+  available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
+  login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
+  logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },
   plate: (c) => c === S.orientation
     ? { n: ON.me ? ON.me.username : 'You', s: ON.me ? `Rating ${myRating(ON.tc)}` : 'Log in to play' }
     : { n: ON.seeking ? 'Searching…' : 'Opponent', s: ON.seeking ? `${ON.seeking.tc} · rated` : 'Not paired yet' },

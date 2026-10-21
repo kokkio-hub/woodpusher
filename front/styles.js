@@ -289,10 +289,12 @@ function renderSettings() {
   $('#styleGrid').innerHTML = STYLE_ORDER.map(id => `<button class="style-card" data-style="${id}" aria-pressed="${id === st}">${previewHTML(id)}<b>${esc(PIECE_STYLES[id].name)}</b><small>${esc(PIECE_STYLES[id].note)}</small></button>`).join('');
   $('#boardGrid').innerHTML = BOARD_ORDER.map(id => `<button class="board-card" data-board="${id}" aria-pressed="${id === bd}"><span class="bd-prev bd-${id}" style="--l:${BOARDS[id].swatch[0]};--d:${BOARDS[id].swatch[1]}"></span><span>${esc(BOARDS[id].name)}</span></button>`).join('');
   $('#setSound').checked = Snd.on;
+  renderUserSection();
 }
 function wireSettings() {
-  $('#btnSettings').addEventListener('click', () => { renderSettings(); $('#settingsModal').hidden = false; const cur = $('#styleGrid [aria-pressed="true"]'); if (cur) cur.focus(); });
+  $('#btnSettings').addEventListener('click', () => { renderSettings(); $('#settingsModal').hidden = false; const cur = $('#styleGrid [aria-pressed="true"]'); if (cur) cur.focus({ preventScroll: true }); $('#settingsModal .modal').scrollTop = 0; });
   $('#setDone').addEventListener('click', () => { $('#settingsModal').hidden = true; });
+  wireUserSection();
   $('#styleGrid').addEventListener('click', (e) => {
     const b = e.target.closest('.style-card'); if (!b) return;
     S.settings.pieces = b.dataset.style; S.settings.board = PIECE_STYLES[b.dataset.style].board;

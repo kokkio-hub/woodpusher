@@ -421,6 +421,27 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .bd-marble { box-shadow: 0 0 0 3px #24413a; } .bd-slate { box-shadow: 0 0 0 3px #2c333b; } .bd-paper { box-shadow: 0 0 0 3px #f4efe4, 0 0 0 4px #1d1a16; }
 .bd-paper { background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(70,60,46,.55) 3px 4px), conic-gradient(#f6f1e6 25%, transparent 0 50%, #f6f1e6 0 75%, transparent 0) 0 0 / 50% 50%, #f6f1e6; }
 .bd-flat { box-shadow: 0 0 0 3px #2f3a37; } .bd-glass { box-shadow: 0 0 0 3px #111b26, 0 0 0 4px rgba(190,220,255,.4); }
+.user-sec { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 18px; align-items: center; padding: 14px 16px; border: 1px solid rgba(201,165,94,.32); border-radius: 7px; background: rgba(0,0,0,.2); }
+.you { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.you-ic { width: 48px; height: 48px; border-radius: 50%; flex: none; display: grid; place-items: center; background: rgba(201,165,94,.14); box-shadow: inset 0 0 0 1px rgba(201,165,94,.5); }
+.you-ic svg { width: 36px; height: 36px; display: block; }
+.you-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.you-name { font-family: var(--f-display); font-weight: 600; font-size: 22px; color: var(--ivory); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.you-sub { font-size: 13.5px; color: var(--ivory-dim); }
+.est { text-align: right; line-height: 1.1; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.est small { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ivory-dim); font-weight: 600; }
+.est b { font-family: var(--f-display); font-weight: 600; font-size: 34px; color: var(--ivory); font-variant-numeric: tabular-nums; }
+.user-detail, .user-ratings, .user-actions { grid-column: 1 / -1; }
+.modal .user-sec p.fine { margin: 0; font-size: 13.5px; }
+.user-ratings { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid rgba(201,165,94,.2); }
+.user-ratings .field-label { margin-bottom: 0; }
+.rbox-n { display: block; font-size: 11.5px; color: var(--ivory-dim); }
+.user-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 460px) {
+  .user-sec { grid-template-columns: 1fr; }
+  .est { text-align: left; align-items: flex-start; }
+  .ratings-row { grid-template-columns: repeat(2, 1fr); }
+}
 .check { display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--brass); }
 
@@ -624,6 +645,7 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 <div class="modal-back" id="settingsModal" hidden>
   <div class="modal settings" role="dialog" aria-modal="true" aria-labelledby="setTitle">
     <h2 id="setTitle" style="font-family:var(--f-display);font-weight:600;color:var(--brass-hi);margin:0;font-size:22px">Settings</h2>
+    <section class="set-section" aria-labelledby="userLbl"><span class="field-label" id="userLbl">You</span><div class="user-sec" id="userSection"></div></section>
     <div class="set-section"><span class="field-label">Piece style</span><div class="style-grid" id="styleGrid"></div></div>
     <div class="set-section"><span class="field-label">Board</span><p class="fine" style="margin:0 0 8px">Each piece style picks a matching board. You can choose another one here.</p><div class="board-grid" id="boardGrid"></div></div>
     <div class="set-section"><label class="check"><input type="checkbox" id="setSound"> Sound effects</label></div>

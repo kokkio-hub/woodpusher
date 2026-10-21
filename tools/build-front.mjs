@@ -9,7 +9,7 @@ const trainer = read(F('trainer.js')); const online = read(F('online.js'));
 const must = (cond, msg) => { if (!cond) { console.error('build failed:', msg); process.exit(1); } };
 must(html.includes('/*TRAINER*/'), 'trainer marker');
 must(html.includes('<!--DATA-->'), 'data marker');
-const styles = read(F('styles.js'));
+const styles = read(F('styles.js')) + '\n' + read(F('profile.js'));
 must(html.includes('/*STYLES*/'), 'styles marker');
 html = html.replace('/*STYLES*/', () => styles);
 html = html.replace('/*TRAINER*/', () => trainer + '\n' + online);
