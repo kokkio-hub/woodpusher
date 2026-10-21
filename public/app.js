@@ -169,12 +169,10 @@ function buildOverlays() {
   document.documentElement.style.setProperty('--leather-tex', `url(${leather})`);
   document.documentElement.style.setProperty('--paper-tex', `url(${paper})`);
 }
-function setClockWood(cv) { TEX.clockURL = cv.toDataURL('image/jpeg', .95); const img = $('#woodImg'); if (img) img.setAttribute('href', TEX.clockURL); }
 // Quick low-resolution pass for the first paint
 function buildQuickTextures() {
   TEX.maple = woodSync('maple', 256, 256, 256); TEX.walnut = woodSync('walnut', 256, 256, 256);
   const fw = 640, st = frameStrip(fw); TEX.frame = woodSync('frame', fw, st.h, fw / 1.6);
-  setClockWood(woodSync('frame', 400, 268, 330));
   drawFrame(); drawBoardCanvas();
 }
 // Sharp pass in the background, sized to the screen; re-runs when the board grows or the zoom changes
@@ -185,7 +183,6 @@ async function upgradeTextures() {
   try {
     if (need.sq > L.sq) jobs.push(Promise.all([woodAsync('maple', need.sq, need.sq, need.sq), woodAsync('walnut', need.sq, need.sq, need.sq)]).then(([a, b]) => { TEX.maple = a; TEX.walnut = b; L.sq = need.sq; drawBoardCanvas(); }));
     if (need.frame > L.frame) { const st = frameStrip(need.frame); jobs.push(woodAsync('frame', need.frame, st.h, need.frame / 1.6).then(cv => { TEX.frame = cv; L.frame = need.frame; drawFrame(); })); }
-    if (need.clock > L.clock) { const k = need.clock; jobs.push(woodAsync('frame', Math.round(400 * k), Math.round(268 * k), 330 * k).then(cv => { setClockWood(cv); L.clock = k; })); }
     await Promise.all(jobs);
   } finally { TEX.busy = false; }
   if (TEX.again) { TEX.again = false; upgradeTextures(); }
@@ -649,61 +646,11 @@ function commitUserMove(from, to, promo) {
 /* =====================================================================
    The clock: twin dials in a walnut case, flags rise near twelve
    ===================================================================== */
-const CLOCK = { L: null, R: null };
+const CLOCK = { ready: false };
 function buildClock() {
-  const host = $('#clockStand');
-  const dial = (side, cx) => {
-    let ticks = '';
-    for (let i = 0; i < 60; i++) {
-      const a = i * 6 * Math.PI / 180, big = i % 5 === 0; const r1 = 54, r2 = big ? 47.5 : 51;
-      ticks += `<line x1="${(Math.sin(a) * r1).toFixed(2)}" y1="${(-Math.cos(a) * r1).toFixed(2)}" x2="${(Math.sin(a) * r2).toFixed(2)}" y2="${(-Math.cos(a) * r2).toFixed(2)}" stroke="#2b2219" stroke-width="${big ? 1.7 : .7}" stroke-linecap="round"/>`;
-    }
-    let nums = '';
-    for (let h = 1; h <= 12; h++) { const a = h * 30 * Math.PI / 180; nums += `<text x="${(Math.sin(a) * 39).toFixed(2)}" y="${(-Math.cos(a) * 39 + 4.2).toFixed(2)}" text-anchor="middle" font-family="IM Fell English, Georgia, serif" font-size="12.5" fill="#2b2219">${h}</text>`; }
-    const arc = (() => { const a1 = 57 * 6 * Math.PI / 180, a2 = 2 * Math.PI; const r = 55.6; return `M${(Math.sin(a1) * r).toFixed(2)},${(-Math.cos(a1) * r).toFixed(2)} A${r},${r} 0 0,1 ${(Math.sin(a2) * r).toFixed(2)},${(-Math.cos(a2) * r).toFixed(2)}`; })();
-    return `<g transform="translate(${cx},142)">
-      <circle r="66" fill="url(#bezel)"/><circle r="66" fill="none" stroke="#3a2a12" stroke-width="1"/>
-      <circle r="60.5" fill="#5e4520"/><circle r="59" fill="url(#face)"/>
-      <circle class="dial-glow" id="glow${side}" r="59" fill="url(#glowGrad)" opacity="0"/>
-      <path d="${arc}" fill="none" stroke="#a8322b" stroke-width="3" stroke-linecap="butt" opacity=".85"/>
-      ${ticks}${nums}
-      <text y="20" text-anchor="middle" font-family="IM Fell English SC, Georgia, serif" font-size="6.4" letter-spacing="1.4" fill="#7a6a50">WOODPUSHER</text>
-      <g id="flag${side}" transform="translate(5,-45) rotate(30)"><line x1="0" y1="0" x2="0" y2="13" stroke="#3a2a12" stroke-width=".9"/><path d="M0,7.5 L7.5,10 L0,13 Z" fill="#b5312a" stroke="#6a1a14" stroke-width=".5"/><circle r="1.4" fill="#3a2a12"/></g>
-      <g id="hh${side}"><path d="M-2.8,7 L-1.7,-15 C-5,-17.5 -5,-23 0,-28 C5,-23 5,-17.5 1.7,-15 L2.8,7 Z" fill="#1d2942" stroke="#0c1222" stroke-width=".5"/></g>
-      <g id="mh${side}"><path d="M-2,9 L-1,-46 L0,-51 L1,-46 L2,9 Z" fill="#1d2942" stroke="#0c1222" stroke-width=".5"/></g>
-      <g id="sh${side}"><line x1="0" y1="13" x2="0" y2="-52" stroke="#a8322b" stroke-width=".9" stroke-linecap="round"/><circle cy="10" r="2" fill="#a8322b"/></g>
-      <circle r="3.6" fill="url(#bezel)" stroke="#3a2a12" stroke-width=".6"/><circle r=".9" fill="#2b2219"/>
-    </g>
-    <g transform="translate(${cx},0)">
-      <text id="nm${side}" y="64" text-anchor="middle" font-family="IM Fell English SC, Georgia, serif" font-size="12.5" letter-spacing=".8" fill="#ecd29a" style="paint-order:stroke" stroke="rgba(20,8,2,.65)" stroke-width="1.4"></text>
-      <rect x="-50" y="218" width="100" height="30" rx="3" fill="url(#plaque)" stroke="#5d4520" stroke-width="1"/>
-      <rect x="-46.5" y="221.5" width="93" height="23" rx="2" fill="none" stroke="rgba(255,244,214,.45)" stroke-width=".8"/>
-      <text id="pt${side}" y="239.5" text-anchor="middle" font-family="Calibri, Carlito, 'Segoe UI', sans-serif" font-weight="700" font-size="19" fill="#2a1d0c"></text>
-    </g>`;
-  };
-  const btn = (side, cx) => `<g class="clock-btn" id="btn${side}"><rect x="${cx - 6}" y="16" width="12" height="30" fill="#4a3517"/><rect x="${cx - 24}" y="12" width="48" height="11" rx="4" fill="url(#brassCap)" stroke="#4a3517" stroke-width="1"/><ellipse cx="${cx}" cy="12.5" rx="23" ry="3.5" fill="#f3dda2" stroke="#4a3517" stroke-width=".8"/></g>`;
-  host.innerHTML = `<svg viewBox="0 0 400 268" role="img" aria-label="Chess clock" id="clockSvg">
-    <defs>
-      <pattern id="woodPat" patternUnits="userSpaceOnUse" width="400" height="268"><rect width="400" height="268" fill="#4a2214"/><image id="woodImg" width="400" height="268" preserveAspectRatio="none"/></pattern>
-      <linearGradient id="caseShade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe3c0" stop-opacity=".16"/><stop offset=".35" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".38"/></linearGradient>
-      <linearGradient id="caseTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd9b0" stop-opacity=".22"/><stop offset="1" stop-color="#000" stop-opacity=".05"/></linearGradient>
-      <radialGradient id="face" cx=".44" cy=".38" r=".7"><stop offset="0" stop-color="#fcf7ea"/><stop offset=".78" stop-color="#efe3c7"/><stop offset="1" stop-color="#d6c39b"/></radialGradient>
-      <radialGradient id="glowGrad" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff6d8" stop-opacity="0"/><stop offset=".8" stop-color="#ffd27a" stop-opacity=".18"/><stop offset="1" stop-color="#ffbf4a" stop-opacity=".55"/></radialGradient>
-      <linearGradient id="bezel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6e0a6"/><stop offset=".35" stop-color="#c9a35a"/><stop offset=".7" stop-color="#86662f"/><stop offset="1" stop-color="#e2c47f"/></linearGradient>
-      <linearGradient id="brassCap" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3dda2"/><stop offset=".5" stop-color="#c49a50"/><stop offset="1" stop-color="#7c6032"/></linearGradient>
-      <linearGradient id="plaque" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ecd398"/><stop offset=".5" stop-color="#cba862"/><stop offset="1" stop-color="#9c7a3c"/></linearGradient>
-      <radialGradient id="clockShadow"><stop offset="0" stop-color="#000" stop-opacity=".5"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
-    </defs>
-    <ellipse cx="200" cy="260" rx="196" ry="9" fill="url(#clockShadow)"/>
-    ${btn('L', 116)}${btn('R', 284)}
-    <path d="M44,46 L356,46 L366,54 L34,54 Z" fill="url(#woodPat)"/><path d="M44,46 L356,46 L366,54 L34,54 Z" fill="url(#caseTop)"/>
-    <path d="M34,54 L366,54 L384,256 L16,256 Z" fill="url(#woodPat)"/><path d="M34,54 L366,54 L384,256 L16,256 Z" fill="url(#caseShade)"/>
-    <path d="M34,54.5 L366,54.5" stroke="rgba(255,220,180,.35)" stroke-width="1"/>
-    <path d="M16,256 L384,256" stroke="rgba(0,0,0,.6)" stroke-width="1.5"/>
-    ${dial('L', 116)}${dial('R', 284)}
-  </svg>`;
+  const row = (pos) => `<div class="dc-row" id="dc${pos}"><span class="dc-ic" id="dcIc${pos}" aria-hidden="true"></span><span class="dc-name" id="dcName${pos}"></span><span class="dc-time" id="dcTime${pos}">0:00</span></div>`;
+  $('#clockStand').innerHTML = `<div class="dclock" role="group" aria-label="Chess clock">${row('Top')}${row('Bot')}</div>`;
   CLOCK.ready = true;
-  if (TEX.clockURL) $('#woodImg').setAttribute('href', TEX.clockURL);
 }
 function fmtTime(ms, tenths) {
   if (ms <= 0) return '0:00';
@@ -716,45 +663,39 @@ function remaining(color) {
   return c.running === color && (S.mode === 'play' || S.mode === 'online') ? c[color] - (performance.now() - c.last) : c[color];
 }
 let lastClockText = {};
+// The clock next to the board mirrors the board: the top row belongs to the player at the top
+const clockColors = () => (S.orientation === 'w' ? { Top: 'b', Bot: 'w' } : { Top: 'w', Bot: 'b' });
 function updateClock() {
   if (!CLOCK.ready) return;
   const g = S.game; const tc = g ? tcById(g.tc) : tcById(S.mode === 'online' && window.WP_ONLINE ? window.WP_ONLINE.tc() : S.settings.tc);
-  const timed = tc.base > 0;
-  const sides = [['L', 'w'], ['R', 'b']];
-  for (const [side, color] of sides) {
+  const timed = tc.base > 0; const live = S.mode === 'play' || S.mode === 'online';
+  const cols = clockColors();
+  for (const pos of ['Top', 'Bot']) {
+    const color = cols[pos];
     const rem = g ? Math.max(0, remaining(color)) : tc.base * 1000;
-    const remS = timed ? rem / 1000 : 0;
-    const shown = 12 * 3600 - remS;
-    const sec = shown % 60, min = (shown / 60) % 60, hr = (shown / 3600) % 12;
-    $('#sh' + side).setAttribute('transform', `rotate(${(sec * 6).toFixed(2)})`);
-    $('#mh' + side).setAttribute('transform', `rotate(${(min * 6).toFixed(2)})`);
-    $('#hh' + side).setAttribute('transform', `rotate(${(hr * 30).toFixed(2)})`);
-    let fa = 30;
-    if (timed) { if (rem <= 0 && g) fa = 112; else if (remS < 180) fa = 30 - (1 - remS / 180) * 82; }
-    $('#flag' + side).setAttribute('transform', `translate(5,-45) rotate(${fa.toFixed(1)})`);
-    const running = g && (S.mode === 'play' || S.mode === 'online') && g.clock.running === color;
-    $('#glow' + side).setAttribute('opacity', running ? 1 : 0);
     const txt = timed ? fmtTime(rem, true) : '∞';
-    if (lastClockText[side] !== txt) { $('#pt' + side).textContent = txt; lastClockText[side] = txt; }
-    $('#pt' + side).setAttribute('fill', timed && g && rem < 20000 && rem > 0 ? '#8e1d14' : '#2a1d0c');
-    const up = g ? (g.clock.running ? g.clock.running === color : false) : false;
-    const mid = !g || !g.clock.running;
-    $('#btn' + side).style.transform = `translateY(${mid ? 6 : up ? 0 : 12}px)`;
+    if (lastClockText[pos] !== txt) { $('#dcTime' + pos).textContent = txt; lastClockText[pos] = txt; }
+    const row = $('#dc' + pos);
+    row.classList.toggle('on', !!(g && live && g.clock.running === color));
+    row.classList.toggle('low', !!(timed && g && rem > 0 && rem < 20000));
+    row.classList.toggle('out', !!(timed && g && rem <= 0));
   }
-  // plate chips
+  // plate chips (phones)
   document.querySelectorAll('.tchip').forEach(ch => {
     const color = ch.dataset.color; const rem = g ? Math.max(0, remaining(color)) : tc.base * 1000;
     const txt = timed ? fmtTime(rem, true) : '∞'; if (ch.textContent !== txt) ch.textContent = txt;
-    const on = g && (S.mode === 'play' || S.mode === 'online') && g.clock.running === color; ch.classList.toggle('on', !!on);
-    ch.classList.toggle('low', !!(timed && g && rem < 20000 && S.mode === 'play'));
+    const on = g && live && g.clock.running === color; ch.classList.toggle('on', !!on);
+    ch.classList.toggle('low', !!(timed && g && rem < 20000 && live));
   });
 }
 function setClockNames() {
   if (!CLOCK.ready) return;
-  const L = S.line; const nm = (c) => (L ? L.names[c] : (c === S.settings.color || (S.settings.color === 'r' && c === 'w') ? 'You' : 'Stockfish'));
-  const bare = !L && S.mode === 'online';
-  $('#nmL').textContent = bare ? 'White' : 'White · ' + nm('w');
-  $('#nmR').textContent = bare ? 'Black' : 'Black · ' + nm('b');
+  const L = S.line; const cols = clockColors();
+  const nm = (c) => (L ? L.names[c] : S.mode === 'online' ? (c === 'w' ? 'White' : 'Black') : (c === S.settings.color || (S.settings.color === 'r' && c === 'w') ? 'You' : 'Stockfish'));
+  for (const pos of ['Top', 'Bot']) {
+    const c = cols[pos]; $('#dcName' + pos).textContent = nm(c);
+    const ic = $('#dcIc' + pos); if (ic.dataset.c !== c) { ic.innerHTML = pieceSVG(c + 'K'); ic.dataset.c = c; }
+  }
 }
 
 /* =====================================================================
