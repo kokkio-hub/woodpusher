@@ -74,4 +74,4 @@ python3 test/e2e.py      # two real browsers (needs Playwright)
 
 ## Licence
 
-Woodpusher is licensed under the GNU General Public License v3.0 or later (see `LICENSE`), because it ships the Stockfish chess engine ([stockfish.js](https://github.com/nmrugg/stockfish.js), GPL-3.0). The fonts (Carlito, Josefin Sans, Share Tech Mono) are under the SIL Open Font License.
+Woodpusher is licensed under the GNU General Public License v3.0 or later (see `LICENSE`), because it ships the Stockfish chess engine ([stockfish.js](https://github.com/nmrugg/stockfish.js), GPL-3.0). The fonts (Carlito, Outfit, Share Tech Mono) are under the SIL Open Font License.

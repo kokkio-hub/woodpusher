@@ -9,7 +9,7 @@ const trainer = read(F('trainer.js')); const online = read(F('online.js'));
 const must = (cond, msg) => { if (!cond) { console.error('build failed:', msg); process.exit(1); } };
 must(html.includes('/*TRAINER*/'), 'trainer marker');
 must(html.includes('<!--DATA-->'), 'data marker');
-const styles = read(F('styles.js')) + '\n' + read(F('profile.js'));
+const styles = read(F('styles.js')) + '\n' + read(F('profile.js')) + '\n' + read(F('opening.js'));
 must(html.includes('/*STYLES*/'), 'styles marker');
 html = html.replace('/*STYLES*/', () => styles);
 html = html.replace('/*TRAINER*/', () => trainer + '\n' + online);
@@ -32,6 +32,8 @@ const page = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Play chess online, against Stockfish, solve puzzles and learn openings on a hand-drawn wooden board.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/outfit-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<meta name="theme-color" content="#17110d">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}[hidden]{display:none!important}</style>
 ${html.slice(0, cut)}
 </head>
