@@ -128,16 +128,25 @@ button { font: inherit; color: inherit; }
 .board-wrap {
   --fw: calc(var(--bw) * .048);
   position: relative; width: var(--bw); height: var(--bw); flex: none; border-radius: 7px;
-  background: #3a1b0f;
+  background: var(--frame-bg, #3a1b0f);
+  --coord: #dcbc7a; --coord-shadow: 0 -1px 0 rgba(0,0,0,.75), 0 1px 0 rgba(255,220,170,.14); --string: rgba(219,184,112,.8); --string-shadow: rgba(20,8,3,.5);
   box-shadow: 0 34px 60px -22px rgba(0,0,0,.8), 0 10px 20px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.55);
 }
+.board-wrap[data-board="marble"] { --frame-bg: #24413a; --coord: #d6e6df; --string: rgba(214,230,223,.55); }
+.board-wrap[data-board="slate"] { --frame-bg: #2c333b; --coord: #c9d2d9; --string: rgba(200,210,220,.45); --string-shadow: rgba(0,0,0,.35); }
+.board-wrap[data-board="paper"] { --frame-bg: #f4efe4; --coord: #2a2620; --coord-shadow: none; --string: #1d1a16; --string-shadow: transparent; }
+.board-wrap[data-board="flat"] { --frame-bg: #2f3a37; --coord: #ece6da; --coord-shadow: none; --string: transparent; --string-shadow: transparent; }
+.board-wrap[data-board="glass"] { --frame-bg: #111b26; --coord: rgba(210,230,250,.85); --coord-shadow: 0 0 6px rgba(120,180,255,.35); --string: rgba(190,220,255,.5); --string-shadow: rgba(0,0,0,.3); }
+.board-wrap[data-board="glass"] .hl-last { mix-blend-mode: normal; background: rgba(110,190,255,.28); }
+.board-wrap[data-board="flat"] .hl-last { mix-blend-mode: normal; background: rgba(232,190,70,.5); }
+.board-wrap[data-board="glass"] .hint::after, .board-wrap[data-board="flat"] .hint::after { background: rgba(10,20,30,.35); }
 #frameCanvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 7px; }
 .board-wrap::after {
   content: ""; position: absolute; inset: calc(var(--fw) - 7px); border-radius: 2px; pointer-events: none;
-  border: 1.5px solid rgba(219,184,112,.8);
-  box-shadow: 0 0 0 1px rgba(20,8,3,.5), inset 0 0 0 1px rgba(20,8,3,.5);
+  border: 1.5px solid var(--string);
+  box-shadow: 0 0 0 1px var(--string-shadow), inset 0 0 0 1px var(--string-shadow);
 }
-.coords { position: absolute; display: grid; pointer-events: none; font-family: var(--f-display); font-weight: 600; font-size: calc(var(--fw) * .44); line-height: 1; color: #dcbc7a; text-shadow: 0 -1px 0 rgba(0,0,0,.75), 0 1px 0 rgba(255,220,170,.14); }
+.coords { position: absolute; display: grid; pointer-events: none; font-family: var(--f-display); font-weight: 600; font-size: calc(var(--fw) * .44); line-height: 1; color: var(--coord); text-shadow: var(--coord-shadow); }
 .coords-files { left: var(--fw); right: var(--fw); bottom: 0; height: calc(var(--fw) - 7px); grid-template-columns: repeat(8, 1fr); align-items: center; justify-items: center; }
 .coords-ranks { top: var(--fw); bottom: var(--fw); left: 0; width: calc(var(--fw) - 7px); grid-template-rows: repeat(8, 1fr); align-items: center; justify-items: center; }
 .board {
@@ -388,6 +397,28 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .danger-link { background: none; border: 0; padding: 0; color: #ffb4a8; cursor: pointer; font: 600 13.5px var(--f-body); }
 .account-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
 
+/* ---------- settings ---------- */
+.modal.settings { width: min(760px, 100%); }
+.set-section { margin-top: 16px; }
+.style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.style-card, .board-card { border: 1px solid rgba(201,165,94,.3); background: rgba(0,0,0,.22); color: var(--ivory); border-radius: 7px; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 3px; padding: 8px; transition: border-color .15s, background .15s; }
+.style-card:hover, .board-card:hover { border-color: var(--brass); }
+.style-card[aria-pressed="true"], .board-card[aria-pressed="true"] { border-color: var(--brass-hi); background: rgba(201,165,94,.16); box-shadow: inset 0 0 0 1px var(--brass-hi); }
+.style-card b { font-size: 15px; font-weight: 700; margin-top: 4px; }
+.style-card small { font-size: 12.5px; color: var(--ivory-dim); }
+.sp-prev { display: grid; grid-template-columns: repeat(4, 1fr); border-radius: 4px; overflow: hidden; aspect-ratio: 4 / 1; }
+.sp-prev > span { display: block; padding: 6%; }
+.sp-prev > span:nth-child(odd) { background: var(--l); } .sp-prev > span:nth-child(even) { background: var(--d); }
+.sp-prev svg { width: 100%; height: 100%; display: block; }
+.board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+.board-card { align-items: center; text-align: center; font-size: 13.5px; font-weight: 600; }
+.bd-prev { width: 100%; aspect-ratio: 1; border-radius: 3px; background: conic-gradient(var(--l) 25%, var(--d) 0 50%, var(--l) 0 75%, var(--d) 0) 0 0 / 50% 50%; box-shadow: 0 0 0 3px #3a1b0f; }
+.bd-marble { box-shadow: 0 0 0 3px #24413a; } .bd-slate { box-shadow: 0 0 0 3px #2c333b; } .bd-paper { box-shadow: 0 0 0 3px #f4efe4, 0 0 0 4px #1d1a16; }
+.bd-paper { background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(70,60,46,.55) 3px 4px), conic-gradient(#f6f1e6 25%, transparent 0 50%, #f6f1e6 0 75%, transparent 0) 0 0 / 50% 50%, #f6f1e6; }
+.bd-flat { box-shadow: 0 0 0 3px #2f3a37; } .bd-glass { box-shadow: 0 0 0 3px #111b26, 0 0 0 4px rgba(190,220,255,.4); }
+.check { display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
+.check input { width: 18px; height: 18px; accent-color: var(--brass); }
+
 /* ---------- modal & toast ---------- */
 .modal-back { position: fixed; inset: 0; z-index: 50; background: rgba(5,10,7,.66); display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
 .modal { width: min(580px, 100%); max-height: 100%; overflow: auto; background: var(--leather-hi); border: 1px solid rgba(201,165,94,.45); border-radius: 7px; padding: 20px; box-shadow: 0 30px 60px rgba(0,0,0,.6); }
@@ -425,7 +456,7 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
     <button class="btn btn-small tab" id="btnPuzzles">Puzzles</button>
     <button class="btn btn-small tab" id="btnOpenings">Openings</button>
     <button class="btn btn-small tab" id="btnImport">Review a PGN</button>
-    <button class="btn btn-small" id="btnSound" aria-pressed="true">Sound on</button>
+    <button class="btn btn-small" id="btnSettings" aria-haspopup="dialog"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.8 1.7 1l.4 2.6h4l.4-2.6c.6-.2 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5A3.5 3.5 0 1 1 13 8.5a3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>Settings</button>
   </nav>
 </header>
 
@@ -582,6 +613,15 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
     <div class="modal-actions"><span class="sp"></span><button class="btn" id="expClose">Close</button></div>
   </div>
 </div>
+<div class="modal-back" id="settingsModal" hidden>
+  <div class="modal settings" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+    <h2 id="setTitle" style="font-family:var(--f-display);font-weight:600;color:var(--brass-hi);margin:0;font-size:22px">Settings</h2>
+    <div class="set-section"><span class="field-label">Piece style</span><div class="style-grid" id="styleGrid"></div></div>
+    <div class="set-section"><span class="field-label">Board</span><p class="fine" style="margin:0 0 8px">Each piece style picks a matching board. You can choose another one here.</p><div class="board-grid" id="boardGrid"></div></div>
+    <div class="set-section"><label class="check"><input type="checkbox" id="setSound"> Sound effects</label></div>
+    <div class="modal-actions"><span class="sp"></span><button class="btn btn-brass" id="setDone">Done</button></div>
+  </div>
+</div>
 <div id="toastHost"></div>
 <div class="sr-only" aria-live="polite" id="live"></div>
 
@@ -726,7 +766,7 @@ const TEXGEN = { worker: null, seq: 0, pending: new Map() };
 function texWorker() {
   if (TEXGEN.worker !== null) return TEXGEN.worker;
   try {
-    const src = `${makeNoise.toString()}\n${woodPixels.toString()}\nonmessage = (e) => { const d = e.data; const px = woodPixels(d.w, d.h, d.pal, d.seed, d.o, d.unit); postMessage({ id: d.id, w: d.w, h: d.h, px }, [px.buffer]); };`;
+    const src = `${makeNoise.toString()}\n${woodPixels.toString()}\n${stonePixels.toString()}\nonmessage = (e) => { const d = e.data; const px = (d.gen === 'stone' ? stonePixels : woodPixels)(d.w, d.h, d.pal, d.seed, d.o, d.unit); postMessage({ id: d.id, w: d.w, h: d.h, px }, [px.buffer]); };`;
     const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
     w.onmessage = (e) => { const r = TEXGEN.pending.get(e.data.id); if (r) { TEXGEN.pending.delete(e.data.id); r.resolve(e.data); } };
     w.onerror = (e) => { if (e && e.preventDefault) e.preventDefault(); for (const r of TEXGEN.pending.values()) r.reject(); TEXGEN.pending.clear(); TEXGEN.worker = false; };
@@ -880,27 +920,7 @@ const SHAPES = {
   },
 };
 const PIECE_CACHE = {};
-function pieceSVG(code) {
-  if (PIECE_CACHE[code]) return PIECE_CACHE[code];
-  const W = code[0] === 'w', type = code[1].toLowerCase();
-  const fill = { c: W ? 'url(#cylW)' : 'url(#cylB)', b: W ? 'url(#ballW)' : 'url(#ballB)', k: W ? 'url(#knW)' : 'url(#knB)', s: W ? '#6a4521' : '#000' };
-  const stroke = W ? '#5a391b' : '#050302';
-  const grain = W ? 'url(#grainW)' : 'url(#grainB)';
-  const det = W ? 'rgba(96,60,28,.7)' : 'rgba(176,134,98,.55)';
-  const sh = SHAPES[type];
-  let s = '<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false"><ellipse cx="51" cy="91.6" rx="34" ry="5.6" fill="url(#pcShadow)"/>';
-  for (const [kind, d] of [...SHAPES.base, ...sh.parts]) {
-    if (kind === 's') {
-      s += `<path d="${d}" fill="${fill.s}" stroke="${W ? '#4a2e12' : '#7a5a42'}" stroke-width=".8" stroke-linejoin="round"/>`;
-    } else {
-      s += `<path d="${d}" fill="${fill[kind]}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/><path d="${d}" fill="${grain}"/>`;
-    }
-  }
-  s += `<path d="${SHAPES.baseLines} ${sh.lines}" fill="none" stroke="${det}" stroke-width="1.1" stroke-linecap="round"/>`;
-  if (sh.eye) s += `<ellipse cx="38.2" cy="31.8" rx="2.7" ry="1.75" transform="rotate(-24 38.2 31.8)" fill="${W ? '#3b240f' : '#0a0604'}" stroke="${W ? 'none' : '#a07a5a'}" stroke-width=".6"/>`;
-  s += '</svg>';
-  return (PIECE_CACHE[code] = s);
-}
+function pieceSVG(code) { return pieceSVGStyled(code, typeof S !== 'undefined' ? curStyle() : 'wood'); }
 function buildDefs() {
   let grainW = '', grainB = '';
   const N = makeNoise(77);
@@ -923,7 +943,7 @@ function buildDefs() {
     <radialGradient id="pcShadow"><stop offset="0" stop-color="#000" stop-opacity=".55"/><stop offset=".7" stop-color="#000" stop-opacity=".18"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
     <pattern id="grainW" patternUnits="userSpaceOnUse" width="100" height="100">${grainW}</pattern>
     <pattern id="grainB" patternUnits="userSpaceOnUse" width="100" height="100">${grainB}</pattern>
-  </defs>${figs}`;
+  ${styleDefs()}</defs>${figs}`;
 }
 const figSVG = (t) => `<svg class="fig" aria-hidden="true"><use href="#fig-${t}"/></svg>`;
 function sanHTML(san) {
@@ -933,6 +953,7 @@ function sanHTML(san) {
 }
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
+/*STYLES*/
 /* =====================================================================
    Sound: synthesised wooden clacks and a small bell
    ===================================================================== */
@@ -976,7 +997,7 @@ const Snd = {
    ===================================================================== */
 const S = {
   mode: 'idle',              // idle | play | paused | over | review
-  settings: { color: 'w', elo: 1200, tc: '3+2', sound: true },
+  settings: { color: 'w', elo: 1200, tc: '3+2', sound: true, pieces: 'wood', board: 'wood' },
   line: null,                // { startFen, fens[], moves[], names{w,b}, subs{w,b}, headers, result, reason, source }
   game: null,                // { playerColor, level, tc, clock:{w,b,running,last}, lastEngineScore }
   chess: null,               // live chess.js game
@@ -1031,6 +1052,7 @@ function drawBoardCanvas() {
   const dpr = DPR(); const W = Math.round(rect.width * dpr);
   if (!W) return;
   cv.width = cv.height = W; const ctx = cv.getContext('2d'); const sq = W / 8;
+  if (paintOtherBoard(ctx, W, sq, dpr)) return;
   for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
     const light = (r + c) % 2 === 0; const x = c * sq, y = r * sq;
     const name = crToSq(c, r); const id = (name.charCodeAt(0) - 97) + (+name[1]) * 8;
@@ -1063,6 +1085,7 @@ function drawFrame() {
   const cv = $('#frameCanvas'); const wrap = $('#boardWrap'); const dpr = DPR();
   const W = Math.round(wrap.getBoundingClientRect().width * dpr); if (!W) return;
   cv.width = cv.height = W; const ctx = cv.getContext('2d'); const f = W * .048;
+  if (paintOtherFrame(ctx, W, f, dpr)) return;
   const sides = [
     { pts: [[0, 0], [W, 0], [W - f, f], [f, f]], rot: 0 },
     { pts: [[0, W], [W, W], [W - f, W - f], [f, W - f]], rot: 0 },
@@ -2012,11 +2035,10 @@ function renderSetup() {
   $('#lvl').value = st.elo; $('#lvlOut').textContent = eloLabel(st.elo); $('#lvlBlurb').textContent = eloBand(st.elo)[2];
   $('#lvl').setAttribute('aria-valuetext', `About ${st.elo} Elo, ${eloBand(st.elo)[1]}`);
   $('#tcGrid').innerHTML = TCS.map(t => `<button class="tc-btn" data-tc="${t.id}" aria-pressed="${t.id === st.tc}" aria-label="${t.base ? `${t.base / 60} minutes plus ${t.inc} seconds, ${t.kind}` : 'Untimed'}"><b>${t.base ? t.id : '∞'}</b><small>${t.kind}</small></button>`).join('');
-  $('#btnSound').textContent = Snd.on ? 'Sound on' : 'Sound off'; $('#btnSound').setAttribute('aria-pressed', String(Snd.on));
 }
 function wire() {
   document.querySelectorAll('[data-pc]').forEach(el => { el.innerHTML = pieceSVG(el.dataset.pc); });
-  $('#brandMark').innerHTML = pieceSVG('wN');
+  $('#brandMark').innerHTML = pieceSVGStyled('wN', 'wood');
   $('#colorSeg').addEventListener('click', e => { const b = e.target.closest('.seg-btn'); if (!b) return; S.settings.color = b.dataset.color; renderSetup(); if (S.mode === 'idle') { S.orientation = S.settings.color === 'b' ? 'b' : 'w'; renderCoords(); repositionAll(); drawBoardCanvas(); renderAll(); } save(); });
   $('#lvl').addEventListener('input', e => { S.settings.elo = +e.target.value; renderSetup(); renderPlates(); save(); });
   $('#tcGrid').addEventListener('click', e => { const b = e.target.closest('.tc-btn'); if (!b) return; S.settings.tc = b.dataset.tc; renderSetup(); renderSheet(); updateClock(); save(); });
@@ -2038,7 +2060,6 @@ function wire() {
   });
   $('#expClose').addEventListener('click', () => { $('#exportModal').hidden = true; });
   document.querySelectorAll('.modal-back').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.hidden = true; }));
-  $('#btnSound').addEventListener('click', () => { Snd.on = !Snd.on; S.settings.sound = Snd.on; renderSetup(); if (Snd.on) Snd.move(); save(); });
   $('#btnTakeback').addEventListener('click', takeback);
   $('#btnDraw').addEventListener('click', offerDraw);
   $('#btnResign').addEventListener('click', (e) => armOrRun(e.currentTarget, 'Confirm resign', resign));
@@ -2095,13 +2116,14 @@ function boot(hot) {
   if (!S.settings.elo) S.settings.elo = LEVEL_TO_ELO[S.settings.level] || ELO_DEFAULT;
   S.settings.elo = clamp(Math.round(S.settings.elo / ELO_STEP) * ELO_STEP, ELO_MIN, ELO_MAX); delete S.settings.level;
   renderSetup();
+  $('#boardWrap').dataset.board = curBoard();
   S.orientation = S.settings.color === 'b' ? 'b' : 'w';
   layoutBoard(); renderCoords();
   const ok = restore(data);
   if (!ok) { setMode('idle'); renderPieces(START_FEN, false); renderAll(); }
   requestAnimationFrame(tick);
   setTimeout(() => { buildOverlays(); buildQuickTextures(); scheduleTextureUpgrade(); watchZoom(); }, 0);
-  bootEngine(); wireTrainer();
+  bootEngine(); wireTrainer(); wireSettings();
   if (window.WP_ONLINE) window.WP_ONLINE.boot();
   if (window.claude && window.claude.hot && window.claude.hot.snapshot) window.claude.hot.snapshot(() => ({ state: snapshot() }));
 }

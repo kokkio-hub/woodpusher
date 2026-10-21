@@ -1,9 +1,10 @@
 # Woodpusher
 
-Chess on a hand-drawn wooden board: play people online with matchmaking, play Stockfish, solve puzzles, learn openings and review your games.
+Chess on a hand-drawn board: play people online with matchmaking, play Stockfish, solve puzzles, learn openings and review your games.
 
 - **Online play**: accounts, Glicko-2 ratings per time control (bullet, blitz, rapid, classical), matchmaking that widens the rating range the longer you wait, friend-challenge links, draw offers, rematches, abort, claim-the-win when an opponent leaves.
 - **The server is the referee**: every move is checked for legality on the server, and the clocks run on the server. Games survive a server restart (for example a new deploy) without anyone losing time.
+- **Eight piece styles and six boards**, from club wood and antique ivory to frosted and modern glass, picked in Settings.
 - **Offline features** run in the browser: Stockfish 10 (WebAssembly), 94 engine-checked puzzles, 18 openings with 49 annotated lines, and full game review.
 
 ## Run it on your own computer
@@ -73,4 +74,4 @@ python3 test/e2e.py      # two real browsers (needs Playwright)
 
 ## Licence
 
-Woodpusher is licensed under the GNU General Public License v3.0 or later (see `LICENSE`), because it ships the Stockfish chess engine ([stockfish.js](https://github.com/nmrugg/stockfish.js), GPL-3.0). The fonts (Carlito, IM Fell English) are under the SIL Open Font License.
+Woodpusher is licensed under the GNU General Public License v3.0 or later (see `LICENSE`), because it ships the Stockfish chess engine ([stockfish.js](https://github.com/nmrugg/stockfish.js), GPL-3.0). The fonts (Carlito, Josefin Sans, Share Tech Mono) are under the SIL Open Font License.
