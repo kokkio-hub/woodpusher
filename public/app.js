@@ -1765,7 +1765,7 @@ function renderGraph() {
     <rect width="${W}" height="${H}" fill="#1d140e"/>
     ${area ? `<path d="${area}" fill="#efe6cf"/>` : ''}
     <line x1="0" y1="50" x2="${W}" y2="50" stroke="#c98b52" stroke-opacity=".55" stroke-dasharray="6 6" vector-effect="non-scaling-stroke"/>
-    ${lineP ? `<path d="${lineP}" fill="none" stroke="#b08a48" stroke-width="1.5" vector-effect="non-scaling-stroke"/>` : ''}
+    ${lineP ? `<path d="${lineP}" fill="none" stroke="#b07a47" stroke-width="1.5" vector-effect="non-scaling-stroke"/>` : ''}
     <line x1="${cx}" y1="0" x2="${cx}" y2="${H}" stroke="#d9a531" stroke-width="2" vector-effect="non-scaling-stroke"/>
   </svg>${dots}`;
 }
