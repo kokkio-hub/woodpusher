@@ -863,6 +863,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
+const BOOK_QS = '?v=c9340eea3d';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -876,7 +877,7 @@ function bookKey(fen) {
   return h.toString(36);
 }
 function loadBook(id) {
-  if (!BOOKS[id]) BOOKS[id] = fetch(BOOK_BASE + id + '.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
+  if (!BOOKS[id]) BOOKS[id] = fetch(BOOK_BASE + id + '.json' + BOOK_QS).then(r => (r.ok ? r.json() : null)).catch(() => null);
   return BOOKS[id];
 }
 // Stronger settings stay in the book longer: 8 plies at 1000, the full 30 from about 2650.

@@ -67,12 +67,20 @@ io.engine.use(sessionMiddleware);
 const lobby = new Lobby(io);
 io.on('connection', (socket) => lobby.attach(socket));
 
+// Never cache account data: every answer from /api is fresh.
+app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 app.use('/api', authRouter({ isPlaying: (id) => lobby.isPlaying(id) }));
 app.use('/api', publicRouter());
 app.get('/healthz', (req, res) => res.json({ ok: true }));
-app.use(express.static(PUBLIC, { maxAge: PROD ? '1h' : 0, index: 'index.html' }));
+// Caching: files the page loads with a build version (?v=…) never change under that address, so
+// browsers may keep them for a year. Everything else, the page itself included, is checked with the
+// server on every load (a quick 304 when nothing changed), so a new deploy is picked up on the next visit.
+app.use(express.static(PUBLIC, {
+  index: 'index.html',
+  setHeaders: (res) => res.set('Cache-Control', res.req && res.req.query && res.req.query.v ? 'public, max-age=31536000, immutable' : 'no-cache'),
+}));
 // Links to games, friend challenges and profiles all open the app
-app.get(['/game/:id', '/c/:code', '/@/:name'], (req, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
+app.get(['/game/:id', '/c/:code', '/@/:name'], (req, res) => res.sendFile(path.join(PUBLIC, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Something went wrong on the server.' }); });
 

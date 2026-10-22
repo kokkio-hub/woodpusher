@@ -1,5 +1,8 @@
 // Builds public/ (the website) from front/ sources: HTML shell, app.js, data.js, engine files.
+// Every build stamps its own version on the files the page loads (/app.js?v=…), so after a deploy
+// browsers fetch the new code instead of reusing a cached copy. See the cache headers in server/index.js.
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const F = (p) => path.join(root, 'front', p); const P = (p) => path.join(root, 'public', p);
@@ -57,4 +60,15 @@ for (const f of ['stockfish.js', 'stockfish.wasm', 'stockfish.asm.js', 'chess.js
 fs.copyFileSync(F('privacy.html'), P('privacy.html'));
 fs.copyFileSync(F('favicon.svg'), P('favicon.svg'));
 fs.mkdirSync(P('fonts'), { recursive: true }); for (const f of fs.readdirSync(F('fonts'))) fs.copyFileSync(F('fonts/' + f), P('fonts/' + f));
-console.log('built public/:', fs.readdirSync(P('')).join(', '));
+// ---- version stamp
+const V = crypto.createHash('sha256');
+for (const f of ['app.js', 'data.js', 'look.js', 'chess.js', 'fonts/fonts.css', 'favicon.svg']) V.update(fs.readFileSync(P(f)));
+for (const f of fs.readdirSync(P('books')).sort()) V.update(fs.readFileSync(P('books/' + f)));
+const ver = V.digest('hex').slice(0, 10);
+const stamp = (file, pairs) => { let s = read(P(file)); for (const [a, b] of pairs) { must(s.includes(a), file + ': ' + a); s = s.split(a).join(b); } fs.writeFileSync(P(file), s); };
+const q = '?v=' + ver;
+stamp('index.html', [['src="/app.js"', `src="/app.js${q}"`], ['src="/data.js"', `src="/data.js${q}"`], ['src="/look.js"', `src="/look.js${q}"`],
+  ['src="/chess.js"', `src="/chess.js${q}"`], ['href="/fonts/fonts.css"', `href="/fonts/fonts.css${q}"`], ['href="/favicon.svg"', `href="/favicon.svg${q}"`]]);
+stamp('privacy.html', [['href="/fonts/fonts.css"', `href="/fonts/fonts.css${q}"`], ['src="/look.js"', `src="/look.js${q}"`], ['href="/favicon.svg"', `href="/favicon.svg${q}"`]]);
+stamp('app.js', [["const BOOK_QS = '';", `const BOOK_QS = '${q}';`]]);
+console.log('built public/ (version ' + ver + '):', fs.readdirSync(P('')).join(', '));
