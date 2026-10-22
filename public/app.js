@@ -1019,7 +1019,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
-const BOOK_QS = '?v=17359c8eac';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
+const BOOK_QS = '?v=7f546e4263';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -2375,6 +2375,17 @@ function wire() {
     if (S.mode === 'review') { if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
     abandonGame();
   });
+  // The logo always leads to the Play page. A game against Stockfish that is still going (or paused)
+  // already is the Play page, so it stays put rather than being thrown away; a live online game must
+  // be finished first, as with the tabs. Ctrl/Cmd-click or middle-click still opens the site in a new tab.
+  $('#brandLockup').addEventListener('click', (e) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (window.WP_ONLINE && window.WP_ONLINE.active()) { toast('Your online game is still running. Finish or resign it first.'); return; }
+    if (S.mode === 'play' || S.mode === 'paused') return;
+    if (S.mode === 'review') { if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
+    abandonGame();
+  });
   const openImport = () => { $('#pgnErr').hidden = true; $('#pgnModal').hidden = false; $('#pgnInput').focus(); };
   $('#btnImport').addEventListener('click', openImport); $('#btnImport2').addEventListener('click', openImport);
   $('#btnSample').addEventListener('click', () => { if (S.mode === 'play') { toast('Finish or abandon your game first.'); return; } loadPGNForReview(OPERA_PGN); });
@@ -3161,7 +3172,7 @@ window.WP_ONLINE = {
   canMove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() === ON.game.you),
   canPremove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() !== ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
-  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc,
+  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(),
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
   login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
   logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },

@@ -70,6 +70,7 @@ button { font: inherit; color: inherit; }
   border-bottom: 1px solid rgba(var(--line),.22);
 }
 .brand { display: flex; align-items: center; gap: 14px; }
+.brand a.lockup { border-radius: 4px; -webkit-tap-highlight-color: transparent; }
 .lockup { --lk: 25px; display: inline-flex; align-items: center; gap: calc(var(--lk) * .36); font-size: var(--lk); line-height: 1; color: inherit; text-decoration: none; }
 .lk-knight { height: calc(var(--lk) * 1.4); width: auto; aspect-ratio: 120 / 140; display: block; flex: none; overflow: visible; }
 .lk-knight { --k-fill: var(--brass); --k-cut: var(--leather); }
@@ -603,10 +604,10 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 
 <header class="topbar">
   <div class="brand">
-    <span class="lockup" id="brandLockup" role="img" aria-label="Woodpusher">
+    <a class="lockup" id="brandLockup" href="/" aria-label="Woodpusher, go to Play">
       <svg class="lk-knight" viewBox="0 0 120 140" aria-hidden="true"><use href="#wpKnight"/></svg>
       <span class="lk-word" aria-hidden="true">Woodpusher</span>
-    </span>
+    </a>
     <span class="brand-sub">play, solve, study</span>
   </div>
   <nav class="top-actions" aria-label="Main">
@@ -2502,6 +2503,17 @@ function wire() {
   $('#btnPlay').addEventListener('click', startGame);
   $('#btnNew').addEventListener('click', (e) => {
     if (S.mode === 'play' && S.line && S.line.moves.length) { armOrRun(e.currentTarget, 'Abandon this game?', abandonGame); return; }
+    if (S.mode === 'review') { if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
+    abandonGame();
+  });
+  // The logo always leads to the Play page. A game against Stockfish that is still going (or paused)
+  // already is the Play page, so it stays put rather than being thrown away; a live online game must
+  // be finished first, as with the tabs. Ctrl/Cmd-click or middle-click still opens the site in a new tab.
+  $('#brandLockup').addEventListener('click', (e) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (window.WP_ONLINE && window.WP_ONLINE.active()) { toast('Your online game is still running. Finish or resign it first.'); return; }
+    if (S.mode === 'play' || S.mode === 'paused') return;
     if (S.mode === 'review') { if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
     abandonGame();
   });
