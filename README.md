@@ -39,7 +39,7 @@ Railway redeploys automatically every time new code lands on the `main` branch.
 
 ## Before you share it publicly
 
-- Fill in the placeholders marked in `front/privacy.html` (name, contact email, hosting details), then run `npm run build:front`.
+- The privacy statement is `front/privacy.html`. After changing it, run `npm run build:front` so the copy in `public/` is updated.
 - Woodpusher stores only a username, a bcrypt password hash, ratings and games. No email addresses, no tracking, and the fonts are self-hosted.
 - Players can delete their account themselves. This removes the account and ratings and takes their name out of past games.
 
