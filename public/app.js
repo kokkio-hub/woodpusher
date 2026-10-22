@@ -50,16 +50,21 @@ const TCS = [
   { id: '30+0', base: 1800, inc: 0, kind: 'Classical' },
   { id: 'none', base: 0, inc: 0, kind: 'Untimed' },
 ];
+const THUMB_SVG = '<svg class="sym-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 10h4.5v11H2zM8.5 10.2 12.6 2c1.6.1 2.6 1.3 2.4 2.9L14.4 9H20a2 2 0 0 1 2 2.4l-1.5 7.6a2.5 2.5 0 0 1-2.5 2H8.5z"/></svg>';
 const CLS = {
+  brilliant:  { label: 'Brilliant',  sym: '!!' },
+  great:      { label: 'Great',      sym: '!' },
   best:       { label: 'Best',       sym: '★' },
-  excellent:  { label: 'Excellent',  sym: '!' },
+  excellent:  { label: 'Excellent',  sym: THUMB_SVG },
   good:       { label: 'Good',       sym: '✓' },
   inaccuracy: { label: 'Inaccuracy', sym: '?!' },
   mistake:    { label: 'Mistake',    sym: '?' },
   blunder:    { label: 'Blunder',    sym: '??' },
   forced:     { label: 'Forced',     sym: '□' },
 };
-const CLS_ORDER = ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'];
+const CLS_ORDER = ['brilliant', 'great', 'best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'];
+// The moments "Play through" stops at in a review.
+const AP_STOPS = ['brilliant', 'great', 'mistake', 'blunder'];
 const OPERA_PGN = `[Event "Opera Game, Paris Opera"]
 [Site "Paris FRA"]
 [Date "1858.??.??"]
@@ -445,7 +450,8 @@ function buildDefs() {
     <pattern id="grainB" patternUnits="userSpaceOnUse" width="100" height="100">${grainB}</pattern>
   ${styleDefs()}</defs>${figs}`;
 }
-const figSVG = (t) => `<svg class="fig" aria-hidden="true"><use href="#fig-${t}"/></svg>`;
+// The figure is drawn; the letter is there for screen readers (and for copying text out of a review note).
+const figSVG = (t) => `<svg class="fig" aria-hidden="true"><use href="#fig-${t}"/></svg><span class="sr-only">${t.toUpperCase()}</span>`;
 function sanHTML(san) {
   let s = san.replace(/=([QRBN])/, (_, p) => '=' + '\u0001' + p.toLowerCase());
   s = s.replace(/^([KQRBN])/, (_, p) => '\u0001' + p.toLowerCase());
@@ -1019,7 +1025,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
-const BOOK_QS = '?v=7f546e4263';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
+const BOOK_QS = '?v=343823bfd8';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -1132,6 +1138,292 @@ function wireOpponents() {
     $('#oppModal').hidden = true; renderSetup(); renderPlates(); renderSheet(); setClockNames(); save(); $('#oppPick').focus();
   });
   if (!personaById(S.settings.opp)) S.settings.opp = null; else loadBook(S.settings.opp);
+}
+
+/* =====================================================================
+   Review commentary: plain-language notes on brilliant and great moves,
+   mistakes and blunders. Everything is worked out from Stockfish's lines
+   plus a small exchange counter, so a note only names a hanging piece, a
+   fork or a missed mate when the engine's line actually shows it.
+   Also the tests that decide when a move counts as great or brilliant.
+   (PVAL, the piece values, comes from personas.js.)
+   ===================================================================== */
+const PNAME = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+const PNAMES = { p: 'pawns', n: 'knights', b: 'bishops', r: 'rooks', q: 'queens' };
+const NUMBER_WORD = ['no', 'a', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
+const oppOf = (c) => (c === 'w' ? 'b' : 'w');
+const capFirst = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const loadFen = (fen) => { const c = new Chess(); return c.load(fen) ? c : null; };
+// The same position with the other side to move: "what could they take if it were their turn?"
+function withTurn(fen, color) { const p = fen.split(' '); p[1] = color; p[3] = '-'; return p.join(' '); }
+
+/* ---------------- material: exchanges, threats, forks ---------------- */
+// Net material the side to move wins by capturing on `sq` and then swapping off, each side always
+// using its cheapest piece and free to stop when going on would cost it. null if nothing can capture there.
+function swapOff(c, sq) {
+  const caps = c.moves({ verbose: true }).filter(m => m.to === sq && m.captured && !m.flags.includes('e'));
+  if (!caps.length) return null;
+  const cost = (m) => (m.piece === 'k' ? 99 : PVAL[m.piece]);
+  caps.sort((a, b) => cost(a) - cost(b));
+  const m = caps[0]; const gain = PVAL[m.captured] + (m.promotion ? PVAL[m.promotion] - 1 : 0);
+  c.move(m); const back = swapOff(c, sq); c.undo();
+  return gain - Math.max(0, back || 0);
+}
+// The biggest material grab available to the side to move: { gain, sq, type }.
+function bestGrab(c) {
+  let best = null; const seen = new Set();
+  for (const m of c.moves({ verbose: true })) {
+    if (!m.captured || m.flags.includes('e') || seen.has(m.to)) continue;
+    seen.add(m.to);
+    const g = swapOff(c, m.to);
+    if (g != null && (!best || g > best.gain)) best = { gain: g, sq: m.to, type: m.captured };
+  }
+  return best;
+}
+// Enemy pieces the piece on `sq` attacks (the king included, when it gives check).
+function attackedFrom(fen, sq) {
+  const c0 = loadFen(fen); const pc = c0 && c0.get(sq); if (!pc) return [];
+  const c = loadFen(withTurn(fen, pc.color)); if (!c) return [];
+  const seen = new Set(); const out = [];
+  for (const m of c.moves({ square: sq, verbose: true })) if (m.captured && !seen.has(m.to)) { seen.add(m.to); out.push({ sq: m.to, type: m.captured }); }
+  return out;
+}
+// Plays a Stockfish line and keeps track of what each side captures, stopping the count where the
+// captures stop (so a line isn't judged halfway through an exchange).
+function lineOutcome(fen, pv, maxPlies = 6) {
+  const c = loadFen(fen); if (!c || !pv || !pv.length) return null;
+  const st = { lost: { w: [], b: [] }, promo: { w: 0, b: 0 } }; const moves = [], fens = [];
+  let settled = null;
+  const n = Math.min(maxPlies, pv.length);
+  for (let k = 0; k < n; k++) {
+    const u = pv[k]; const m = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || undefined }); if (!m) break;
+    moves.push(m); fens.push(c.fen());
+    if (m.captured) st.lost[oppOf(m.color)].push({ type: m.captured, sq: m.flags.includes('e') ? m.to[0] + m.from[1] : m.to, ply: k });
+    if (m.promotion) st.promo[m.color] += PVAL[m.promotion] - 1;
+    let nextTakes = false;
+    if (k + 1 < n) { const v = pv[k + 1]; const x = c.move({ from: v.slice(0, 2), to: v.slice(2, 4), promotion: v[4] || undefined }); if (x) { nextTakes = !!(x.captured || x.promotion); c.undo(); } }
+    if (!nextTakes) settled = { lost: { w: st.lost.w.slice(), b: st.lost.b.slice() }, promo: { w: st.promo.w, b: st.promo.b }, plies: k + 1 };
+  }
+  if (!moves.length) return null;
+  if (!settled) settled = { lost: st.lost, promo: st.promo, plies: moves.length };
+  return Object.assign(settled, { moves, fens, mated: c.in_checkmate() });
+}
+const sumOf = (xs) => xs.reduce((a, x) => a + PVAL[x.type], 0);
+// Material colour c comes out ahead (positive) or behind (negative) over a line.
+function netFor(o, c) { return o ? sumOf(o.lost[oppOf(c)]) + o.promo[c] - sumOf(o.lost[c]) - o.promo[oppOf(c)] : 0; }
+// "a knight", "two pawns", "the queen", "a rook and a pawn"
+function piecesWords(types) {
+  const cnt = {}; for (const t of types) cnt[t] = (cnt[t] || 0) + 1;
+  const parts = ['q', 'r', 'b', 'n', 'p'].filter(t => cnt[t]).map(t => cnt[t] === 1 ? (t === 'q' ? 'the queen' : `a ${PNAME[t]}`) : `${NUMBER_WORD[cnt[t]] || cnt[t]} ${PNAMES[t]}`);
+  return parts.length < 2 ? (parts[0] || '') : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+}
+// What colour c gives up over a line once even trades are taken out: { mine, theirs } as lists of
+// captures ({ type, sq, ply }), most valuable first.
+function netLosses(o, c) {
+  const mine = o.lost[c].slice(), theirs = o.lost[oppOf(c)].slice();
+  for (let k = mine.length - 1; k >= 0; k--) { const j = theirs.findIndex(x => x.type === mine[k].type); if (j >= 0) { theirs.splice(j, 1); mine.splice(k, 1); } }
+  const byValue = (a, b) => PVAL[b.type] - PVAL[a.type] || a.ply - b.ply;
+  return { mine: mine.sort(byValue), theirs: theirs.sort(byValue) };
+}
+// What colour c loses over a line, as words: "a knight for a pawn". Empty when c doesn't lose anything.
+function lossWords(o, c) {
+  if (!o) return '';
+  const { mine, theirs } = netLosses(o, c);
+  if (!mine.length) return '';
+  return piecesWords(mine.map(x => x.type)) + (theirs.length ? ' for ' + piecesWords(theirs.map(x => x.type)) : '');
+}
+
+/* ---------------- great and brilliant ---------------- */
+// A capture anyone would play: taking a piece that has just moved there (taking back, or taking what was
+// offered), or a capture that wins material on the spot.
+function obviousCapture(i) {
+  const L = S.line, m = L.moves[i]; if (!m.captured) return false;
+  const prev = L.moves[i - 1]; if (prev && prev.to === m.to) return true;
+  const c = loadFen(L.fens[i + 1]); if (!c) return false;
+  const back = swapOff(c, m.to); return PVAL[m.captured] - Math.max(0, back || 0) >= 1;
+}
+// Does move i give material away on purpose? { sq, type, offered, moved } or null.
+// The opponent must be able to win at least a piece's worth of material (or a piece for a pawn) right
+// after the move, and that material must not have been there for the taking already: leaving a piece
+// that was hanging anyway, or a capture that only rescues something lost anyway (a "desperado"), is no sacrifice.
+function sacrificeAt(i) {
+  const L = S.line, m = L.moves[i];
+  const after = loadFen(L.fens[i + 1]); if (!after || after.game_over()) return null;
+  const grab = bestGrab(after); if (!grab) return null;
+  const took = (m.captured ? PVAL[m.captured] : 0) + (m.promotion ? PVAL[m.promotion] - 1 : 0);
+  const offered = grab.gain - took;
+  if (!(offered >= 2 || (offered >= 1 && grab.type !== 'p'))) return null;
+  const pre = loadFen(withTurn(L.fens[i], oppOf(m.color)));
+  if (pre) {
+    if (grab.sq !== m.to && pre.get(grab.sq)) { const was = swapOff(pre, grab.sq); if (was != null && was >= grab.gain) return null; }
+    if (m.captured) { const g0 = bestGrab(pre); if (g0 && g0.gain >= offered) return null; }
+  }
+  return { sq: grab.sq, type: grab.type, offered, moved: grab.sq === m.to };
+}
+// How a position stands for one side, in steps: 3 winning, 2 clearly better, 1 a little better, 0 level,
+// down to -3 losing. The same cut-offs as the words in standing() below.
+const tierOf = (p) => (p >= 86 ? 3 : p >= 68 ? 2 : p >= 57 ? 1 : p > 43 ? 0 : p > 32 ? -1 : p > 14 ? -2 : -3);
+// Called from classifyAll for moves Stockfish rates best (or as good as best). Returns 'brilliant',
+// 'great' or null. Results are kept per move: the positions never change during a review.
+// Brilliant: a sound sacrifice that leaves the player better off (or mating).
+// Great: the only good move, where every other move would have changed how the game stands by at
+// least two steps (say from level to clearly worse), and not an obvious capture.
+function specialMove(i, ctx) {
+  const R = S.review; R.memo = R.memo || {};
+  const key = i + ':' + ctx.altKey; if (key in R.memo) return R.memo[key];
+  let out = null;
+  const L = S.line, m = L.moves[i];
+  if (!m.san.includes('#') && (ctx.after >= 55 || ctx.postMate)) {
+    const sac = sacrificeAt(i);
+    if (sac) { R.sac = R.sac || {}; R.sac[i] = sac; out = 'brilliant'; }
+  }
+  if (!out && ctx.isBest && i >= 8 && ctx.legal > 2 && ctx.alt && !m.san.includes('#')) {
+    const altW = winPct(scoreOf(ctx.alt.ev) * ctx.sgn);
+    if (ctx.before - altW >= 15 && tierOf(ctx.after) - tierOf(altW) >= 2 && ctx.after >= 40 && !obviousCapture(i)) out = 'great';
+  }
+  R.memo[key] = out;
+  return out;
+}
+
+/* ---------------- words ---------------- */
+// Which colour is "you" in this game, if any (your games against Stockfish and your online games).
+function youColor() {
+  const L = S.line, g = S.game; if (!L) return null;
+  if (L.source === 'play' && g) return g.playerColor;
+  if (L.source === 'online' && g && g.you) return g.you;
+  return null;
+}
+function sideWords(c) {
+  const you = youColor() === c; const name = c === 'w' ? 'White' : 'Black';
+  return { you, Who: you ? 'You' : name, who: you ? 'you' : name, the: you ? 'your' : 'the', s: you ? '' : 's', is: you ? 'are' : 'is', poss: you ? 'your' : name + '’s' };
+}
+// How the game stands for colour c, from its winning chances: { c, lvl } where c is the side ahead.
+function standing(w, c) {
+  const lvl = (p) => (p >= 86 ? 'winning' : p >= 68 ? 'clearly better' : p >= 57 ? 'a little better' : null);
+  if (lvl(w)) return { c, lvl: lvl(w) };
+  if (lvl(100 - w)) return { c: oppOf(c), lvl: lvl(100 - w) };
+  return { c: null, lvl: 'about equal' };
+}
+const standingSentence = (st) => { if (!st.c) return 'the game is about equal'; const P = sideWords(st.c); return `${P.who} ${P.is} ${st.lvl}`; };
+const standingLeft = (st) => (st.c ? `${sideWords(st.c).who} ${st.lvl}` : 'the game about equal');
+// A move in bold with its piece figure; Black's moves get the "…" in front, as on a score sheet.
+const moveWords = (san, color) => (san ? `<b>${color === 'b' ? '…' : ''}${sanHTML(san)}</b>` : '');
+const sqWords = (sq) => `<b>${sq}</b>`;
+// For colour c, how good the position is (0–100) from an evaluation.
+const chancesFor = (ev, c) => winPct(scoreOf(ev) * (c === 'w' ? 1 : -1));
+
+/* ---------------- the notes ---------------- */
+function explainBad(i) {
+  const R = S.review, L = S.line, m = L.moves[i], c = m.color, o = oppOf(c), M = sideWords(c), O = sideWords(o);
+  const sg = c === 'w' ? 1 : -1; const pre = R.evals[i], post = R.evals[i + 1];
+  const best = uciToSan(L.fens[i], R.best[i]); const bestH = moveWords(best, c);
+  const reply = R.pv[i + 1] || []; const out = [];
+  let betterSaid = false, punished = false;
+  const missedMate = pre && pre.mate != null && Math.sign(pre.mate) === sg && !(post && post.mate != null && Math.sign(post.mate) === sg);
+  const allowsMate = post && post.mate != null && Math.sign(post.mate) === -sg;
+  if (missedMate && best) {
+    const n = Math.abs(pre.mate);
+    out.push(n === 1 ? `${bestH} was checkmate on the spot.` : `${M.Who} could have forced checkmate in ${n} moves here, starting with ${bestH}.`);
+    betterSaid = true;
+  }
+  if (allowsMate) {
+    const n = Math.abs(post.mate); const first = reply.length ? moveWords(uciToSan(L.fens[i + 1], reply[0]), o) : '';
+    out.push(n === 1 ? `This allows checkmate on the next move${first ? `: ${first}` : ''}.` : `This walks into a forced mate: ${O.who} can checkmate in ${n} moves${first ? `, starting with ${first}` : ''}.`);
+    punished = true;
+  } else {
+    // The line starts with the move itself, so a capture it makes counts too: taking a knight and then
+    // losing a pawn is no loss of material, whatever else is wrong with the move.
+    const oc = reply.length ? lineOutcome(L.fens[i], [m.uci].concat(reply), 7) : null;
+    const lost = oc ? -netFor(oc, c) : 0;
+    const key = oc && netLosses(oc, c).mine[0];   // the most valuable thing that really goes
+    if (oc && lost >= 1 && key) {
+      punished = true;
+      const what = PNAME[key.type]; const at = `${M.the} ${what} on ${sqWords(key.sq)}`;
+      const taker = moveWords(oc.moves[key.ply].san, o); const words = lossWords(oc, c);
+      const plain = words === `a ${what}` || words === 'the queen';   // the loss is just that one piece
+      let said = false;
+      if (key.ply === 1 && key.sq === m.to) { out.push(`This puts ${at} where it can simply be taken: ${taker}.`); said = plain; }
+      else if (key.ply === 1) {
+        const before = loadFen(withTurn(L.fens[i], o)); const threat = before && before.get(key.sq) ? swapOff(before, key.sq) : null;
+        if (threat > 0) out.push(`${capFirst(at)} was under attack, and this move doesn’t save it. ${O.Who} take${O.s} it with ${taker}.`);
+        else out.push(`After this, ${at} is no longer safe: ${O.who} can take it with ${taker}.`);
+        said = plain;
+      } else {
+        const fm = oc.moves[1]; const hits = attackedFrom(oc.fens[1], fm.to);
+        const worth = hits.filter(h => h.type === 'k' || PVAL[h.type] > PVAL[fm.piece]);
+        if (worth.length >= 2 && hits.some(h => h.sq === key.sq)) {
+          const names = worth.sort((a, b) => (b.type === 'k' ? 99 : PVAL[b.type]) - (a.type === 'k' ? 99 : PVAL[a.type])).slice(0, 2).map(h => PNAME[h.type]);
+          out.push(`This allows a fork: ${moveWords(fm.san, o)} attacks ${M.the} ${names[0]} and ${names[1]} at the same time.`);
+        } else out.push(`This lets ${O.who} win material, starting with ${moveWords(fm.san, o)}.`);
+      }
+      if (!said && words) out.push(`${M.Who} lose${M.s} ${words}.`);
+    } else if (!missedMate && best) {
+      // the best move would have won material that the move played doesn't
+      const bo = lineOutcome(L.fens[i], R.pv[i] || [], 7); const won = lossWords(bo, o);
+      if (bo && won && netFor(bo, c) >= 1 && netFor(bo, c) - (oc ? netFor(oc, c) : 0) >= 1) { out.push(`${M.Who} missed a chance to win ${won} with ${bestH}.`); betterSaid = true; }
+    }
+  }
+  const afterSt = standing(chancesFor(post, c), c);
+  if (!out.length) {
+    const beforeSt = standing(chancesFor(pre, c), c);
+    if (beforeSt.lvl !== afterSt.lvl || beforeSt.c !== afterSt.c) out.push(`Before this move ${standingSentence(beforeSt)}. Now ${standingSentence(afterSt)}.`);
+    else if (afterSt.c === c) out.push(`${capFirst(standingSentence(afterSt))}, but this move gives a good part of the advantage away.`);
+    else if (afterSt.c === null) out.push(`The game is still roughly level, but this move hands ${O.who} the easier position.`);
+    else out.push(`${capFirst(standingSentence(afterSt))}, and this move makes it harder still for ${M.who}.`);
+    const r0 = reply.length ? uciToSan(L.fens[i + 1], reply[0]) : null;
+    if (r0) out.push(`${capFirst(O.poss)} best answer is ${moveWords(r0, o)}.`);
+  } else if (!allowsMate) out.push(`${capFirst(standingSentence(afterSt))} now.`);
+  if (!betterSaid && best) out.push(`Better was ${bestH}.`);
+  const nx = L.moves[i + 1];
+  if (punished && nx && R.best[i + 1] && nx.uci !== R.best[i + 1] && (R.cls[i + 1] === 'mistake' || R.cls[i + 1] === 'blunder'))
+    out.push(`${O.Who} didn’t spot it in the game.`);
+  return out.join(' ');
+}
+function explainGreat(i) {
+  const R = S.review, L = S.line, m = L.moves[i], c = m.color, o = oppOf(c), M = sideWords(c), O = sideWords(o);
+  const sg = c === 'w' ? 1 : -1; const post = R.evals[i + 1]; const prev = i > 0 ? R.cls[i - 1] : null;
+  const out = []; const punish = prev === 'mistake' || prev === 'blunder';
+  out.push(punish ? `Well spotted! This punishes ${O.poss} mistake.` : 'The only good move in this position.');
+  if (post && post.mate != null && Math.sign(post.mate) === sg) { const n = Math.abs(post.mate); out.push(n === 1 ? 'It forces checkmate on the next move.' : `It leads to a forced checkmate in ${n} moves.`); }
+  else { const oc = lineOutcome(L.fens[i], R.pv[i] || []); const won = lossWords(oc, o); if (oc && netFor(oc, c) >= 1 && won) out.push(`${M.Who} win${M.s} ${won}.`); }
+  const alt = R.alt && R.alt[i];
+  if (alt && alt.move) {
+    const altSan = uciToSan(L.fens[i], alt.move); const aw = chancesFor(alt.ev, c), now = chancesFor(post, c);
+    const ast = standing(aw, c); let what;
+    if (punish && aw < 57 && aw > 43) what = `let ${O.who} off the hook`;
+    else if (now >= 57 && ast.c === null) what = 'thrown the advantage away';
+    else if (now >= 57 && ast.c === c) what = 'given much of the advantage away';
+    else what = `left ${standingLeft(ast)}`;
+    if (altSan) out.push(`Other moves, like ${moveWords(altSan, c)}, would have ${what}.`);
+  }
+  return out.join(' ');
+}
+function explainBrilliant(i) {
+  const R = S.review, L = S.line, m = L.moves[i], c = m.color, o = oppOf(c), M = sideWords(c), O = sideWords(o);
+  const sg = c === 'w' ? 1 : -1; const post = R.evals[i + 1];
+  const sac = (R.sac && R.sac[i]) || sacrificeAt(i); if (!sac) return '';
+  const piece = PNAME[sac.type]; const what = `${M.the} ${piece}`; const out = [];
+  const nx = L.moves[i + 1]; const taken = !!(nx && nx.captured && nx.to === sac.sq);
+  const reply = (R.pv[i + 1] || [])[0]; const replyTakes = !!reply && reply.slice(2, 4) === sac.sq;
+  const mates = post && post.mate != null && Math.sign(post.mate) === sg;
+  out.push(sac.moved ? `A real sacrifice: ${M.who} give${M.s} up ${what} on ${sqWords(sac.sq)}.`
+                     : `A real sacrifice: ${M.who} leave${M.s} ${what} on ${sqWords(sac.sq)} for the taking.`);
+  if (mates) {
+    const n = Math.abs(post.mate);
+    out.push(`${taken ? `${O.Who} took it, but whatever ${O.who} play${O.s}, ` : 'Whatever the reply, '}${n === 1 ? 'checkmate follows on the next move.' : `it ends in checkmate within ${n} moves.`}`);
+    return out.join(' ');
+  }
+  const st = standing(chancesFor(post, c), c);
+  if (!replyTakes && reply) {
+    out.push(`Taking it would cost ${O.who} more than it wins, so ${O.poss} best answer is ${moveWords(uciToSan(L.fens[i + 1], reply), o)}${st.c === c ? `, and ${standingSentence(st)} after that` : ''}.`);
+    if (taken) { const k = R.cls[i + 1]; out.push(`In the game ${O.who} took it anyway${k === 'mistake' || k === 'blunder' ? `, ${k === 'blunder' ? 'a blunder' : 'a mistake'}` : ''}.`); }
+  } else {
+    const oc = lineOutcome(L.fens[i], R.pv[i] || [], 10); const back = netFor(oc, c) >= 0;
+    if (taken) out.push(`${O.Who} took it.`);
+    out.push(back ? `${M.Who} win${M.s} the material back a few moves later.` : `The ${piece} is gone for good, but the play ${M.who} get${M.s} for it is worth more.`);
+    if (st.c === c) out.push(`Afterwards ${standingSentence(st)}.`);
+  }
+  return out.join(' ');
 }
 
 /* =====================================================================
@@ -1378,7 +1670,7 @@ function renderArrows() {
   const rv = S.mode === 'review' && S.review ? S.review : null;
   if (rv && S.view > 0) {
     const i = S.view - 1; const cls = rv.cls[i]; const best = rv.best[i];
-    if (best && cls && cls !== 'best' && cls !== 'forced') out += arrowPath(best.slice(0, 2), best.slice(2, 4), 'var(--c-best)');
+    if (best && cls && !['best', 'forced', 'great', 'brilliant'].includes(cls)) out += arrowPath(best.slice(0, 2), best.slice(2, 4), 'var(--c-best)');
   }
   out += trainerArrows();
   svg.innerHTML = out;
@@ -1905,6 +2197,7 @@ function resumeGame() {
 }
 function setMode(m) {
   const prev = S.mode; S.mode = m;
+  if (m !== 'review') apPause();
   if (m !== 'play' && m !== 'online') S.premoves = [];
   $('#setupCard').hidden = m !== 'idle';
   $('#reviewCta').hidden = m !== 'idle';
@@ -2031,6 +2324,7 @@ function renderAll() {
 }
 function goTo(ply, animate = true) {
   if (!S.line) return; ply = clamp(ply, 0, liveIndex()); if (ply === S.view) return;
+  if (!AP.own && (AP.on || AP.stop)) apPause();   // stepping by hand takes over from Play through
   S.view = ply; S.sel = null; S.legal = []; closePromo(); if (ply !== liveIndex()) S.premoves = [];
   renderPieces(S.line.fens[ply], animate); renderAll();
   if ((S.mode === 'review' || S.mode === 'lesson') && ply > 0) { const mv = S.line.moves[ply - 1]; if (mv.captured) Snd.clack(.5, 1300); else Snd.clack(.4, 1600); }
@@ -2071,8 +2365,9 @@ async function startReview() {
   S.engineToken++; if (ENG.main) ENG.main.cancelAll();
   const key = lineKey(L);
   if (!S.review || S.review.key !== key) {
-    S.review = { key, evals: [], best: [], pv: [], cls: [], acc: [], token: 0, done: false };
+    S.review = { key, evals: [], best: [], pv: [], alt: [], cls: [], acc: [], token: 0, done: false };
   }
+  apPause();
   S.bannerOpen = false; setMode('review'); S.orientation = S.orientation || 'w';
   const firstView = 0; S.view = firstView; S.sel = null; S.legal = [];
   renderPieces(L.fens[S.view], false); renderAll();
@@ -2085,8 +2380,9 @@ async function analyse() {
   const engines = await getPool();
   if (token !== R.token) return;
   if (!engines.length) { $('#rvText').textContent = 'Stockfish is not running, so the game cannot be analysed.'; return; }
+  // Two lines per position: the second-best move is what tells an only move (a great move) apart.
   const fast = ENG.source && ENG.source.label === 'WebAssembly';
-  const depth = 15, movetime = fast ? 1400 : 1000;
+  const depth = 15, movetime = fast ? 1700 : 1200;
   let next = 0;
   const work = async (eng) => {
     while (true) {
@@ -2094,13 +2390,16 @@ async function analyse() {
       const i = next++; if (i >= n) return;
       if (R.evals[i]) continue;
       const term = terminalEval(L.fens[i], i === n - 1, L);
-      if (term) { R.evals[i] = term; R.best[i] = null; R.pv[i] = []; onEval(); continue; }
-      const res = await eng.search({ fen: L.fens[i], depth, movetime, skill: 20 });
+      if (term) { R.evals[i] = term; R.best[i] = null; R.pv[i] = []; R.alt[i] = null; onEval(); continue; }
+      const res = await eng.search({ fen: L.fens[i], depth, movetime, skill: 20, multipv: 2 });
       if (token !== R.token) return;
       if (!res) { next = Math.min(next, i); return; }
       const stm = L.fens[i].split(' ')[1] === 'w' ? 1 : -1; const info = res.info || { cp: 0, pv: [] };
-      R.evals[i] = info.mate != null ? { mate: info.mate * stm } : { cp: (info.cp || 0) * stm };
+      const evOf = (x) => (x.mate != null ? { mate: x.mate * stm } : { cp: (x.cp || 0) * stm });
+      R.evals[i] = evOf(info);
       R.best[i] = res.bestmove; R.pv[i] = info.pv || [];
+      const two = res.lines && res.lines[1];
+      R.alt[i] = two && two.pv && two.pv.length && two.pv[0] !== res.bestmove ? { ev: evOf(two), move: two.pv[0] } : null;
       onEval();
     }
   };
@@ -2131,9 +2430,25 @@ function classifyAll() {
     else if (loss < 10) cls = 'inaccuracy';
     else if (loss < 20) cls = 'mistake';
     else cls = 'blunder';
-    // Early opening: shallow engine noise shouldn't brand normal theory as inaccurate
+    // Early opening: shallow engine noise shouldn't brand normal theory as inaccurate, nor call a move
+    // a mistake when the game is still within a pawn of level afterwards (Play through stops at mistakes)
+    if (i < 10 && cls === 'mistake' && Math.abs(scoreOf(b)) <= 100) cls = 'inaccuracy';
     if (i < 10 && cls === 'inaccuracy') cls = 'good';
     if (L.moves[i].san.includes('#')) cls = 'best';
+    // Brilliant (a sound sacrifice) and great (the only good move): only for moves Stockfish rates
+    // best, or as good as its best. The tests themselves live in commentary.js.
+    else if (cls === 'best' || cls === 'excellent') {
+      const alt = R.alt ? R.alt[i] : null; const isBest = cls === 'best';
+      const preMate = a.mate != null && Math.sign(a.mate) === sgn;
+      const asGood = isBest || (!preMate && alt && alt.move === L.moves[i].uci && Math.abs(scoreOf(alt.ev) - scoreOf(a)) <= 25);
+      if (asGood) {
+        try {
+          const postMate = b.mate != null && Math.sign(b.mate) === sgn;
+          const sp = specialMove(i, { isBest, alt, sgn, before, after, postMate, legal: legalCount, altKey: alt ? alt.move : '-' });
+          if (sp) cls = sp;
+        } catch (e) { /* a note is never worth breaking the review for */ }
+      }
+    }
     R.cls[i] = cls;
     R.acc[i] = clamp(103.1668 * Math.exp(-0.04354 * loss) - 3.1669, 0, 100);
   }
@@ -2174,6 +2489,7 @@ function renderReview() {
   renderGraph(); renderAnnot(); renderEvalBar();
   const keys = keyMoments();
   $('#btnPrevKey').disabled = !keys.some(p => p < S.view); $('#btnNextKey').disabled = !keys.some(p => p > S.view);
+  renderAutoPlay();
 }
 const shortName = (s) => s.length > 14 ? s.slice(0, 13) + '…' : s;
 function keyMoments() { const R = S.review; if (!R) return []; const out = []; R.cls.forEach((c, i) => { if (c === 'mistake' || c === 'blunder' || c === 'inaccuracy') out.push(i + 1); }); return out; }
@@ -2198,7 +2514,7 @@ function renderGraph() {
   }
   const cx = S.view / Math.max(1, n - 1) * W;
   let dots = '';
-  R.cls.forEach((c, i) => { if ((c === 'mistake' || c === 'blunder') && R.evals[i + 1]) { const x = (i + 1) / Math.max(1, n - 1) * 100; const y = (100 - whiteWin(R.evals[i + 1])); dots += `<span class="gdot" style="left:${x}%;top:${clamp(y, 4, 96)}%;--cc:var(--c-${c})"></span>`; } });
+  R.cls.forEach((c, i) => { if (AP_STOPS.includes(c) && R.evals[i + 1]) { const x = (i + 1) / Math.max(1, n - 1) * 100; const y = (100 - whiteWin(R.evals[i + 1])); dots += `<span class="gdot" style="left:${x}%;top:${clamp(y, 4, 96)}%;--cc:var(--c-${c})"></span>`; } });
   g.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
     <rect width="${W}" height="${H}" fill="#1d140e"/>
     ${area ? `<path d="${area}" fill="#efe6cf"/>` : ''}
@@ -2209,25 +2525,30 @@ function renderGraph() {
 }
 function renderAnnot() {
   const R = S.review, L = S.line; const el = $('#annot'); const v = S.view;
+  el.classList.remove('ap-stop');
   const ev = R.evals[v]; const evTxt = fmtEval(ev); const whiteish = ev && whiteWin(ev) >= 50;
   const evChip = `<span class="annot-eval${whiteish ? ' wht' : ''}">${evTxt}</span>`;
   if (v === 0) {
     const keys = keyMoments().length;
     el.style.removeProperty('--cc');
     el.innerHTML = `<div class="annot-top"><span class="annot-badge" style="--cc:var(--ink-soft)">♙</span><span class="annot-title">Starting position</span>${evChip}</div>
-      <p class="annot-body">${R.done ? `Step through with → or click any move on the score sheet. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves while it runs.'}</p>`;
+      <p class="annot-body">${R.done ? `Step through with → or click any move on the score sheet, or press <b>Play through</b> to watch the game and stop at the moments that matter. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
     return;
   }
   const i = v - 1; const mv = L.moves[i]; const cls = R.cls[i];
   const mover = mv.color === 'w' ? L.names.w : L.names.b;
   if (!cls) {
+    el.style.removeProperty('--cc');
     el.innerHTML = `<div class="annot-top"><span class="annot-badge">…</span><span class="annot-title">${moveLabel(i)} ${sanHTML(mv.san)}</span>${evChip}</div><p class="annot-body">Stockfish hasn't reached this move yet.</p>`;
     return;
   }
+  el.style.setProperty('--cc', `var(--c-${cls})`);
   const bestSan = uciToSan(L.fens[i], R.best[i]);
   const sanH = `<b>${sanHTML(mv.san)}</b>`, bestH = bestSan ? `<b>${sanHTML(bestSan)}</b>` : '';
   const pre = R.evals[i], post = R.evals[i + 1]; const sgn = mv.color === 'w' ? 1 : -1;
   let text = {
+    brilliant: `${sanH} is a brilliant move.`,
+    great: `${sanH} is a great move.`,
     best: `${sanH} is the best move.`,
     excellent: `${sanH} is excellent.${bestH ? ` Stockfish slightly preferred ${bestH}.` : ''}`,
     good: `${sanH} is a good move.${bestH ? ` ${bestH} was a little stronger.` : ''}`,
@@ -2240,13 +2561,94 @@ function renderAnnot() {
   if (mv.san.includes('#')) { text = `${sanH} is checkmate.`; }
   else if (post && post.mate != null && Math.sign(post.mate) === -sgn) note = `This allows mate in ${Math.abs(post.mate)}.`;
   else if (pre && pre.mate != null && Math.sign(pre.mate) === sgn && !(post && post.mate != null && Math.sign(post.mate) === sgn)) note = `There was a forced mate in ${Math.abs(pre.mate)}.`;
+  // Brilliant and great moves, mistakes and blunders get a note in plain words on what actually happens.
+  const explain = { brilliant: explainBrilliant, great: explainGreat, mistake: explainBad, blunder: explainBad }[cls];
+  if (explain && !mv.san.includes('#')) { try { const t = explain(i); if (t) { text = t; note = ''; } } catch (e) { /* keep the short note */ } }
   const evLine = pre && post && !mv.san.includes('#') ? `Evaluation ${fmtEval(pre)} → ${fmtEval(post)}` : '';
-  const pvLine = cls !== 'best' && cls !== 'forced' && R.pv[i] && R.pv[i].length ? `<p class="annot-line">Best line: ${pvToSan(L.fens[i], R.pv[i])}</p>` : '';
-  el.innerHTML = `<div class="annot-top"><span class="annot-badge" style="--cc:var(--c-${cls})">${CLS[cls].sym}</span><span class="annot-title">${moveLabel(i)} ${sanHTML(mv.san)} · ${esc(CLS[cls].label)}</span>${evChip}</div>
+  const showsIdea = cls === 'brilliant' || cls === 'great';
+  const pvLine = cls !== 'best' && cls !== 'forced' && R.pv[i] && R.pv[i].length ? `<p class="annot-line">${showsIdea ? 'The idea' : 'Best line'}: ${pvToSan(L.fens[i], R.pv[i])}</p>` : '';
+  const stopped = AP.stop === v && AP_STOPS.includes(cls);
+  el.classList.toggle('ap-stop', stopped);
+  el.innerHTML = `${stopped ? `<p class="annot-kicker">Paused here · ${esc(CLS[cls].label.toLowerCase())}</p>` : ''}<div class="annot-top"><span class="annot-badge" style="--cc:var(--c-${cls})">${CLS[cls].sym}</span><span class="annot-title">${moveLabel(i)} ${sanHTML(mv.san)} · ${esc(CLS[cls].label)}</span>${evChip}</div>
     <p class="annot-body">${text} ${note}</p>${evLine ? `<p class="annot-line">${esc(mover)} · ${evLine}</p>` : ''}${pvLine}`;
 }
 function moveLabel(i) { const L = S.line; const p = L.startFen.split(' '); const off = p[1] === 'b' ? 1 : 0; const no = (+p[5] || 1) + Math.floor((i + off) / 2); return (i + off) % 2 === 0 ? `${no}.` : `${no}…`; }
+/* =====================================================================
+   Review: play the game through, stopping at brilliant and great moves,
+   mistakes and blunders. Any other way of moving through the game
+   (arrows, the score sheet, the graph) takes over from it.
+   ===================================================================== */
+const AP_SPEEDS = { slow: 1800, normal: 1050, fast: 500 };
+const AP = { on: false, timer: null, waiting: false, stop: 0, own: false };
+const AP_ICONS = {
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4.2v14H6zm7.8 0H18v14h-4.2z"/></svg>',
+  again: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1.5L6.5 6 12 10.5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>',
+};
+const apSpeed = () => (AP_SPEEDS[S.settings.apSpeed] ? S.settings.apSpeed : 'normal');
+function apStopCount() { const R = S.review; return R ? R.cls.filter(c => AP_STOPS.includes(c)).length : 0; }
+function apMove(ply) { AP.own = true; try { goTo(ply); } finally { AP.own = false; } }
+function apStart() {
+  if (S.mode !== 'review' || !S.line || !S.review) return;
+  if (S.view >= liveIndex()) apMove(0);
+  AP.on = true; AP.stop = 0; AP.waiting = false;
+  clearTimeout(AP.timer); AP.timer = setTimeout(apStep, 350);
+  renderAnnot(); renderAutoPlay();
+}
+function apPause(stopAt = 0) {
+  const was = AP.on || AP.stop;
+  AP.on = false; AP.waiting = false; AP.stop = stopAt; clearTimeout(AP.timer); AP.timer = null;
+  if (was && S.mode === 'review' && S.review) { renderAnnot(); renderAutoPlay(); }
+}
+function apToggle() { if (AP.on) apPause(); else apStart(); }
+function apStep() {
+  AP.timer = null; if (!AP.on) return;
+  if (S.mode !== 'review' || !S.review) { apPause(); return; }
+  if (S.view >= liveIndex()) { apPause(); announce('That was the last move.'); return; }
+  apMove(S.view + 1);
+  apCheck();
+}
+// After each move: stop if it is one of the moments, wait if Stockfish hasn't graded it yet, else carry on.
+function apCheck() {
+  AP.timer = null; if (!AP.on || S.mode !== 'review' || !S.review) return;
+  const i = S.view - 1; const cls = S.review.cls[i];
+  if (!cls) { if (!AP.waiting) { AP.waiting = true; renderAutoPlay(); } AP.timer = setTimeout(apCheck, 250); return; }
+  if (AP.waiting) AP.waiting = false;
+  if (AP_STOPS.includes(cls)) {
+    apPause(S.view);
+    const mv = S.line.moves[i];
+    announce(`${moveLabel(i)} ${mv.san}: ${CLS[cls].label.toLowerCase()}. Paused. Press Continue to go on.`);
+    return;
+  }
+  if (S.view >= liveIndex()) { apPause(); announce('That was the last move.'); return; }
+  renderAutoPlay();
+  AP.timer = setTimeout(apStep, AP_SPEEDS[apSpeed()]);
+}
+function renderAutoPlay() {
+  const R = S.review; const btn = $('#btnAutoPlay'), tool = $('#navPlay'); if (!btn) return;
+  const inReview = S.mode === 'review' && !!R && !!S.line;
+  tool.hidden = !inReview; if (!inReview) return;
+  const atEnd = S.view >= liveIndex();
+  const state = AP.on ? 'pause' : AP.stop ? 'continue' : atEnd ? 'again' : S.view > 0 ? 'here' : 'play';
+  const label = { pause: 'Pause', continue: 'Continue', again: 'Play again', here: 'Play from here', play: 'Play through' }[state];
+  const icon = AP_ICONS[state === 'pause' ? 'pause' : state === 'again' ? 'again' : 'play'];
+  btn.innerHTML = `${icon}<span>${label}</span>`;
+  tool.innerHTML = `${icon}<span>${state === 'pause' ? 'Pause' : state === 'continue' ? 'Continue' : 'Play'}</span>`;
+  tool.setAttribute('aria-label', label); btn.setAttribute('aria-pressed', String(AP.on)); tool.setAttribute('aria-pressed', String(AP.on));
+  document.querySelectorAll('#apSpeed .ap-sp').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.sp === apSpeed())));
+  const n = apStopCount(); const graded = R.cls.filter(Boolean).length; const total = S.line.moves.length;
+  let note;
+  if (AP.on && AP.waiting) note = 'Waiting for Stockfish to grade this move…';
+  else if (AP.on) note = 'Playing. It stops at brilliant and great moves, mistakes and blunders.';
+  else if (AP.stop) { const c = R.cls[AP.stop - 1]; note = `Paused at ${c === 'great' ? 'a great move' : c === 'brilliant' ? 'a brilliant move' : `a ${CLS[c].label.toLowerCase()}`}. Read the note above, then press <b>Continue</b>.`; }
+  else if (graded < total) note = 'Replays the game and stops at brilliant and great moves, mistakes and blunders. Moves Stockfish hasn’t graded yet are waited for.';
+  else note = n ? `Replays the game and stops at the ${n === 1 ? 'one moment' : `${n} moments`} that matter: brilliant and great moves, mistakes and blunders.` : 'Replays the game. Nothing in it is brilliant, great, a mistake or a blunder, so it plays straight through.';
+  $('#apNote').innerHTML = note;
+  // under the board too, for phones, where the review panel sits below the board
+  $('#viewNote').textContent = AP.on ? (AP.waiting ? 'Waiting for Stockfish to grade this move…' : 'Playing through the game…') : AP.stop ? 'Paused at a key moment. Press Continue to go on.' : '';
+}
 function exitReview() {
+  apPause();
   if (S.review) S.review.token++;
   for (const e of ENG.pool) e.cancelAll();
   if (S.line && S.line.source === 'online' && window.WP_ONLINE) { window.WP_ONLINE.open(); return; }
@@ -2324,7 +2726,7 @@ function snapshot() {
     v: 1, settings: S.settings, mode: S.mode, orientation: S.orientation, view: S.view,
     line: L ? { startFen: L.startFen, sans: L.moves.map(m => m.san), names: L.names, subs: L.subs, headers: L.headers, result: L.result, reason: L.reason, source: L.source } : null,
     game: g ? { playerColor: g.playerColor, elo: g.elo, opp: g.opp || null, inBook: !!g.inBook, tc: g.tc, histId: g.histId, takebacks: g.takebacks || 0, clock: { w: Math.max(0, remaining('w')), b: Math.max(0, remaining('b')), running: g.clock.running } } : null,
-    review: S.review ? { key: S.review.key, evals: S.review.evals, best: S.review.best, pv: S.review.pv } : null,
+    review: S.review ? { v: 2, key: S.review.key, evals: S.review.evals, best: S.review.best, pv: S.review.pv, alt: S.review.alt } : null,
   };
 }
 let saveTimer = null;
@@ -2343,7 +2745,10 @@ function restore(d) {
     if (d.game) S.game = { playerColor: d.game.playerColor, elo: d.game.elo || LEVEL_TO_ELO[d.game.level] || ELO_DEFAULT, opp: personaById(d.game.opp) ? d.game.opp : null, inBook: !!d.game.inBook, tc: d.game.tc, histId: d.game.histId, takebacks: d.game.takebacks || 0, clock: { w: d.game.clock.w, b: d.game.clock.b, running: d.game.clock.running, last: performance.now() }, lastEngineScore: null };
     S.orientation = d.orientation || 'w';
     S.view = clamp(d.view ?? fens.length - 1, 0, fens.length - 1);
-    if (d.review && d.review.key === lineKey(S.line)) S.review = { key: d.review.key, evals: d.review.evals || [], best: d.review.best || [], pv: d.review.pv || [], cls: [], acc: [], token: 0, done: false };
+    // v2 reviews also hold Stockfish's second-best move per position; an older one is simply analysed again.
+    if (d.review && d.review.key === lineKey(S.line)) S.review = d.review.v === 2
+      ? { key: d.review.key, evals: d.review.evals || [], best: d.review.best || [], pv: d.review.pv || [], alt: d.review.alt || [], cls: [], acc: [], token: 0, done: false }
+      : { key: d.review.key, evals: [], best: [], pv: [], alt: [], cls: [], acc: [], token: 0, done: false };
     let mode = d.mode;
     if (mode === 'play' || mode === 'paused') mode = S.game ? 'paused' : 'idle';
     if (mode === 'paused') S.view = fens.length - 1;
@@ -2407,6 +2812,9 @@ function wire() {
   $('#btnRematch').addEventListener('click', startGame);
   $('#btnExitReview').addEventListener('click', exitReview);
   $('#btnCopyPgn').addEventListener('click', copyPGN);
+  $('#btnAutoPlay').addEventListener('click', apToggle);
+  $('#navPlay').addEventListener('click', apToggle);
+  $('#apSpeed').addEventListener('click', e => { const b = e.target.closest('.ap-sp'); if (!b) return; S.settings.apSpeed = b.dataset.sp; renderAutoPlay(); save(); });
   $('#btnPrevKey').addEventListener('click', () => { const k = keyMoments().filter(p => p < S.view); if (k.length) goTo(k[k.length - 1]); });
   $('#btnNextKey').addEventListener('click', () => { const k = keyMoments().find(p => p > S.view); if (k) goTo(k); });
   $('#navFirst').addEventListener('click', () => goTo(0));
@@ -2435,6 +2843,8 @@ function wire() {
       else if (e.key === 'Home') { goTo(0); e.preventDefault(); }
       else if (e.key === 'End') { goTo(liveIndex()); e.preventDefault(); }
       else if (e.key === 'f' || e.key === 'F') flip();
+      // Space plays and pauses a review (on a focused button Space already presses that button)
+      else if (e.key === ' ' && S.mode === 'review' && !e.target.closest('button, a, select')) { apToggle(); e.preventDefault(); }
     }
   });
   let rz = null; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(layoutBoard, 90); });

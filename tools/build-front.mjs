@@ -12,7 +12,7 @@ const trainer = read(F('trainer.js')); const online = read(F('online.js'));
 const must = (cond, msg) => { if (!cond) { console.error('build failed:', msg); process.exit(1); } };
 must(html.includes('/*TRAINER*/'), 'trainer marker');
 must(html.includes('<!--DATA-->'), 'data marker');
-const styles = ['styles.js', 'profile.js', 'opening.js', 'personas.js'].map(f => read(F(f))).join('\n');
+const styles = ['styles.js', 'profile.js', 'opening.js', 'personas.js', 'commentary.js'].map(f => read(F(f))).join('\n');
 must(html.includes('/*STYLES*/'), 'styles marker');
 html = html.replace('/*STYLES*/', () => styles);
 html = html.replace('/*TRAINER*/', () => trainer + '\n' + online);
@@ -29,7 +29,9 @@ html = html.replace(/<script src="https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/
 html = html.replace('<meta name="claude:viewport-fit-sides" content="cover">\n', '');
 html = html.replace(/<link rel="preconnect"[^>]*>\n/g, '').replace(/<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.com[^"]*">/, '<link rel="stylesheet" href="/fonts/fonts.css">');
 must(!html.includes('fonts.googleapis.com'), 'google fonts removed');
-html = html.replace('<span>Keys: ← → step · Home / End · F flips</span>', '<span><a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a> · Keys: ← → step · Home / End · F flips</span>');
+const KEYS = '<span>Keys: ← → step · Home / End · F flips · Space plays a review</span>';
+must(html.includes(KEYS), 'keys line');
+html = html.replace(KEYS, '<span><a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a> · Keys: ← → step · Home / End · F flips · Space plays a review</span>');
 for (const [a, b] of [["const BOOK_BASE = 'books/';", "const BOOK_BASE = '/books/';"], ["url: 'stockfish.js'", "url: '/stockfish.js'"], ["url: 'stockfish.asm.js'", "url: '/stockfish.asm.js'"], ["s.src = 'chess.js'", "s.src = '/chess.js'"]]) { must(app.includes(a), a); app = app.replace(a, b); }
 const cut = html.indexOf('</style>') + '</style>'.length;
 const page = `<!doctype html>

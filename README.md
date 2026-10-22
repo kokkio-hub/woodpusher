@@ -8,6 +8,8 @@ Chess on a hand-drawn board: play people online with matchmaking, play Stockfish
 - **Top-10 opponents**: bots in the style of the FIDE top 10. Each plays the player's real openings, from a book built out of their over-the-board games, then Stockfish picks among its best moves with a nudge towards that player's habits (sharpness, queen trades, sacrifices, pawn storms, how hard they avoid draws).
 - **Eight piece styles and nine boards**, from club wood and antique ivory to frosted and modern glass, picked in Settings. The four wooden boards (walnut & maple, rosewood & boxwood, mahogany & bird's-eye maple, smoked oak & ash) are generated in the browser at the exact pixel size of your screen, with pores, fibres and growth rings down to single pixels.
 - **Offline features** run in the browser: Stockfish 10 (WebAssembly), 94 engine-checked puzzles, 18 openings with 49 annotated lines, and full game review.
+- **Game review in plain words**: every move is graded from brilliant and great down to blunder. Brilliant moves (sound sacrifices), great moves (the only good move), mistakes and blunders get a short note that says what actually happens: a piece left hanging, a threat not dealt with, a fork, a missed or allowed mate, material won or missed. The notes are worked out from Stockfish's lines, so they only name a tactic the engine's line shows (`front/commentary.js`).
+- **Play through**: replays a reviewed game on the board and pauses at each brilliant or great move, mistake and blunder, with its note, until you press Continue. Three speeds; Space plays and pauses.
 
 ## Run it on your own computer
 
@@ -53,7 +55,8 @@ server/        Node.js server: Express, Socket.IO, PostgreSQL
   glicko.js    Glicko-2 rating calculation
   schema.sql   database tables
 front/         source of the web page
-  app.html     board, clock, play vs Stockfish, review
+  app.html     board, clock, play vs Stockfish, review, play through
+  commentary.js  review notes, and the tests for great and brilliant moves
   trainer.js   puzzles and opening lessons
   online.js    online lobby and live games
   data/        openings and puzzles
@@ -82,6 +85,7 @@ node test/sim.mjs        # two simulated players: matchmaking, a full game, chal
 node test/restart.mjs    # a game survives a server restart
 python3 test/e2e.py      # two real browsers (needs Playwright)
 python3 test/premove.py  # premoves online and against Stockfish, in two real browsers
+python3 test/review.py   # review grades and notes on sample games, and Play through stopping at the right moves
 ```
 
 ## Licence
