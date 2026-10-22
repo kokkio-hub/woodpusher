@@ -223,12 +223,20 @@ function statsLine() {
   return `<p class="stat-line">${s.online} online · ${s.games} game${s.games === 1 ? '' : 's'} in progress · ${seekingAll} looking for a game${here ? ` (${here} at ${ON.tc})` : ''}</p>`;
 }
 const mmss = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+// The panel is redrawn often: lobby stats arrive every 3 seconds, the seek timer ticks every second.
+// A redraw must never cost someone what they are typing, so identical HTML leaves the page alone,
+// and a real change carries typed text, focus and cursor position over to the new fields.
+const panelKey = (n) => n.id ? '#' + CSS.escape(n.id) : n.name ? `[name="${n.name}"]` : n.dataset && n.dataset.act ? `[data-act="${n.dataset.act}"]` : n.dataset && n.dataset.tc ? `[data-tc="${n.dataset.tc}"]` : n.dataset && n.dataset.auth ? `[data-auth="${n.dataset.auth}"]` : null;
 function renderOnlinePanel() {
   const el = $('#onlinePanel'); if (!el || S.mode !== 'online') return;
-  if (!ON.loaded) { el.innerHTML = '<p class="fine"><span class="spinner"></span>Connecting…</p>'; return; }
-  if (!ON.me) { el.innerHTML = authHTML(); return; }
-  if (ON.game) { el.innerHTML = gameHTML(); return; }
-  el.innerHTML = lobbyHTML();
+  const html = !ON.loaded ? '<p class="fine"><span class="spinner"></span>Connecting…</p>' : !ON.me ? authHTML() : ON.game ? gameHTML() : lobbyHTML();
+  if (html === ON.panelHtml && el.firstChild) return;
+  const typed = [...el.querySelectorAll('input:not([readonly]):not([type=hidden]), textarea')].map(n => [panelKey(n), n.value]).filter(([k, v]) => k && v);
+  const a = document.activeElement; const focusKey = a && a !== el && el.contains(a) ? panelKey(a) : null;
+  let sel = null; try { if (focusKey && typeof a.selectionStart === 'number') sel = [a.selectionStart, a.selectionEnd]; } catch (e) {}
+  el.innerHTML = html; ON.panelHtml = html;
+  for (const [k, v] of typed) { const n = el.querySelector(k); if (n && !n.readOnly && !n.value) n.value = v; }
+  if (focusKey) { const n = el.querySelector(focusKey); if (n) { n.focus({ preventScroll: true }); if (sel) { try { n.setSelectionRange(sel[0], sel[1]); } catch (e) {} } } }
 }
 function authHTML() {
   const reg = ON.authTab === 'register';
