@@ -3,6 +3,7 @@
 Chess on a hand-drawn board: play people online with matchmaking, play Stockfish, solve puzzles, learn openings and review your games.
 
 - **Online play**: accounts, Glicko-2 ratings per time control (bullet, blitz, rapid, classical), matchmaking that widens the rating range the longer you wait, friend-challenge links, draw offers, rematches, abort, claim-the-win when an opponent leaves.
+- **Premoves, like chess.com**: while your opponent (or Stockfish) is thinking, queue one or more moves. They show on the board in red and each one plays the instant the turn comes back. Click an empty square, right-click or press Esc to cancel. Can be switched off in Settings.
 - **The server is the referee**: every move is checked for legality on the server, and the clocks run on the server. Games survive a server restart (for example a new deploy) without anyone losing time.
 - **Top-10 opponents**: bots in the style of the FIDE top 10. Each plays the player's real openings, from a book built out of their over-the-board games, then Stockfish picks among its best moves with a nudge towards that player's habits (sharpness, queen trades, sacrifices, pawn storms, how hard they avoid draws).
 - **Eight piece styles and six boards**, from club wood and antique ivory to frosted and modern glass, picked in Settings.
@@ -80,6 +81,7 @@ With the server running locally on port 3100:
 node test/sim.mjs        # two simulated players: matchmaking, a full game, challenge, draw, rematch
 node test/restart.mjs    # a game survives a server restart
 python3 test/e2e.py      # two real browsers (needs Playwright)
+python3 test/premove.py  # premoves online and against Stockfish, in two real browsers
 ```
 
 ## Licence

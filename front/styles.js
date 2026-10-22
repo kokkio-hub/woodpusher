@@ -295,6 +295,7 @@ function renderSettings() {
   $('#styleGrid').innerHTML = STYLE_ORDER.map(id => `<button class="style-card" data-style="${id}" aria-pressed="${id === st}">${previewHTML(id)}<b>${esc(PIECE_STYLES[id].name)}</b><small>${esc(PIECE_STYLES[id].note)}</small></button>`).join('');
   $('#boardGrid').innerHTML = BOARD_ORDER.map(id => `<button class="board-card" data-board="${id}" aria-pressed="${id === bd}"><span class="bd-prev bd-${id}" style="--l:${BOARDS[id].swatch[0]};--d:${BOARDS[id].swatch[1]}"></span><span>${esc(BOARDS[id].name)}</span></button>`).join('');
   $('#setSound').checked = Snd.on;
+  $('#setPremove').checked = S.settings.premove !== false;
   document.querySelectorAll('#lookSeg .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.look === (S.settings.look === 'light' ? 'light' : 'dark'))));
   renderUserSection();
 }
@@ -316,4 +317,5 @@ function wireSettings() {
     S.settings.look = b.dataset.look === 'light' ? 'light' : 'dark'; S.settings.lookChosen = true; applyTheme(); renderSettings(); save(); b.focus();
   });
   $('#setSound').addEventListener('change', (e) => { Snd.on = e.target.checked; S.settings.sound = Snd.on; if (Snd.on) Snd.move(); save(); });
+  $('#setPremove').addEventListener('change', (e) => { S.settings.premove = e.target.checked; if (!S.settings.premove) clearPremoves(); else renderAll(); save(); });
 }

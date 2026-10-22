@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Play chess online, against Stockfish, solve puzzles and learn openings on a hand-drawn wooden board.">
-<link rel="icon" href="/favicon.svg?v=c9340eea3d" type="image/svg+xml">
+<link rel="icon" href="/favicon.svg?v=39cd535e05" type="image/svg+xml">
 <link rel="preload" href="/fonts/outfit-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <meta name="theme-color" content="#f3f1ef">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Woodpusher</title>
-<link rel="stylesheet" href="/fonts/fonts.css?v=c9340eea3d">
-<script src="/look.js?v=c9340eea3d"></script>
+<link rel="stylesheet" href="/fonts/fonts.css?v=39cd535e05">
+<script src="/look.js?v=39cd535e05"></script>
 <style>
 /* Layout: a club-room desk in espresso leather, coloured after the logo. The wooden board holds the left of the table; a tan-trimmed stand on the right carries the twin-dial clock, the controls and a paper score sheet. */
 :root {
@@ -181,6 +181,8 @@ button { font: inherit; color: inherit; }
 .hl { position: absolute; width: 12.5%; height: 12.5%; left: calc(var(--c) * 12.5%); top: calc(var(--r) * 12.5%); }
 .hl-last { background: rgba(247,190,70,.5); mix-blend-mode: multiply; }
 .hl-sel { background: rgba(239,214,159,.25); box-shadow: inset 0 0 0 3px rgba(244,222,170,.95); }
+.hl-pre { background: rgba(196,48,34,.5); box-shadow: inset 0 0 0 2px rgba(120,18,10,.35); }
+.board-wrap[data-board="glass"] .hl-pre { background: rgba(255,92,80,.36); }
 .hl-hover { box-shadow: inset 0 0 0 3px rgba(255,248,230,.75); }
 .hl-check { background: radial-gradient(circle, rgba(225,38,28,.9) 0%, rgba(225,38,28,.5) 32%, rgba(225,38,28,0) 68%); }
 .hl-cls { background: color-mix(in srgb, var(--cc) 62%, transparent); mix-blend-mode: multiply; }
@@ -799,16 +801,17 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
     <div class="set-section"><span class="field-label">Piece style</span><div class="style-grid" id="styleGrid"></div></div>
     <div class="set-section"><span class="field-label">Board</span><p class="fine" style="margin:0 0 8px">Each piece style picks a matching board. You can choose another one here.</p><div class="board-grid" id="boardGrid"></div></div>
     <div class="set-section"><label class="check"><input type="checkbox" id="setSound"> Sound effects</label></div>
+    <div class="set-section"><label class="check"><input type="checkbox" id="setPremove"> Premoves</label><p class="fine" style="margin:4px 0 0 28px">Make your next move while your opponent is thinking. It plays the instant they move.</p></div>
     <div class="modal-actions"><span class="sp"></span><button class="btn btn-brass" id="setDone">Done</button></div>
   </div>
 </div>
 <div id="toastHost"></div>
 <div class="sr-only" aria-live="polite" id="live"></div>
 
-<script src="/data.js?v=c9340eea3d"></script>
-<script src="/chess.js?v=c9340eea3d"></script>
+<script src="/data.js?v=39cd535e05"></script>
+<script src="/chess.js?v=39cd535e05"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=c9340eea3d"></script>
+<script src="/app.js?v=39cd535e05"></script>
 
 </body>
 </html>

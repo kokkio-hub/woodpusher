@@ -620,6 +620,7 @@ function renderSettings() {
   $('#styleGrid').innerHTML = STYLE_ORDER.map(id => `<button class="style-card" data-style="${id}" aria-pressed="${id === st}">${previewHTML(id)}<b>${esc(PIECE_STYLES[id].name)}</b><small>${esc(PIECE_STYLES[id].note)}</small></button>`).join('');
   $('#boardGrid').innerHTML = BOARD_ORDER.map(id => `<button class="board-card" data-board="${id}" aria-pressed="${id === bd}"><span class="bd-prev bd-${id}" style="--l:${BOARDS[id].swatch[0]};--d:${BOARDS[id].swatch[1]}"></span><span>${esc(BOARDS[id].name)}</span></button>`).join('');
   $('#setSound').checked = Snd.on;
+  $('#setPremove').checked = S.settings.premove !== false;
   document.querySelectorAll('#lookSeg .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.look === (S.settings.look === 'light' ? 'light' : 'dark'))));
   renderUserSection();
 }
@@ -641,6 +642,7 @@ function wireSettings() {
     S.settings.look = b.dataset.look === 'light' ? 'light' : 'dark'; S.settings.lookChosen = true; applyTheme(); renderSettings(); save(); b.focus();
   });
   $('#setSound').addEventListener('change', (e) => { Snd.on = e.target.checked; S.settings.sound = Snd.on; if (Snd.on) Snd.move(); save(); });
+  $('#setPremove').addEventListener('change', (e) => { S.settings.premove = e.target.checked; if (!S.settings.premove) clearPremoves(); else renderAll(); save(); });
 }
 
 /* =====================================================================
@@ -863,7 +865,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
-const BOOK_QS = '?v=c9340eea3d';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
+const BOOK_QS = '?v=39cd535e05';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -1021,13 +1023,14 @@ const Snd = {
    ===================================================================== */
 const S = {
   mode: 'idle',              // idle | play | paused | over | review
-  settings: { color: 'w', elo: 1200, opp: null, tc: '3+2', sound: true, pieces: 'wood', board: 'wood', look: 'light' },
+  settings: { color: 'w', elo: 1200, opp: null, tc: '3+2', sound: true, premove: true, pieces: 'wood', board: 'wood', look: 'light' },
   line: null,                // { startFen, fens[], moves[], names{w,b}, subs{w,b}, headers, result, reason, source }
   game: null,                // { playerColor, level, tc, clock:{w,b,running,last}, lastEngineScore }
   chess: null,               // live chess.js game
   view: 0,
   orientation: 'w',
   sel: null, legal: [],
+  premoves: [],              // [{from, to, promo}] queued while the opponent is to move
   engineToken: 0, thinking: false,
   review: null,
   bannerOpen: false,
@@ -1153,11 +1156,16 @@ function boardMap(fen) {
 }
 function placeEl(el, sq) { const [c, r] = sqToCR(sq); el.style.setProperty('--x', c); el.style.setProperty('--y', r); }
 function renderPieces(fen, animate = true) {
-  const layer = $('#pieceLayer'); const map = boardMap(fen);
+  const layer = $('#pieceLayer'); const map = showsPremoves(fen) ? premoveMap() : boardMap(fen);
   const want = Object.entries(map); const used = new Set(); const keep = [];
   const remaining = [];
   for (const p of pieceEls) {
-    if (map[p.sq] === p.code && !used.has(p.sq)) { used.add(p.sq); keep.push(p); } else remaining.push(p);
+    if (map[p.sq] === p.code && !used.has(p.sq)) {
+      used.add(p.sq); keep.push(p);
+      // The board may have turned around since this piece was drawn (e.g. an online game as Black): snap it into place
+      const [c, r] = sqToCR(p.sq);
+      if (+p.el.style.getPropertyValue('--x') !== c || +p.el.style.getPropertyValue('--y') !== r) { p.el.style.transition = 'none'; placeEl(p.el, p.sq); void p.el.offsetWidth; p.el.style.transition = ''; }
+    } else remaining.push(p);
   }
   const unmatched = want.filter(([sq]) => !used.has(sq));
   for (const [sq, code] of unmatched) {
@@ -1191,6 +1199,7 @@ function renderHighlights() {
     if (cls) { h += box(mv.from, 'hl-cls', `--cc:var(--c-${cls})`) + box(mv.to, 'hl-cls', `--cc:var(--c-${cls})`); }
     else h += box(mv.from, 'hl-last') + box(mv.to, 'hl-last');
   }
+  if (S.premoves.length && v === liveIndex()) { const pre = new Set(); for (const pm of S.premoves) { pre.add(pm.from); pre.add(pm.to); } for (const sq of pre) h += box(sq, 'hl-pre'); }
   const pos = chessAt(L.fens[v]);
   if (pos.in_check()) {
     const turn = pos.turn(); const map = boardMap(L.fens[v]);
@@ -1225,8 +1234,110 @@ function arrowPath(from, to, color) {
   return `<path d="M${pts.map(p => p[0].toFixed(3) + ',' + p[1].toFixed(3)).join(' L')} Z" fill="${color}" fill-opacity=".82" stroke="rgba(20,40,10,.5)" stroke-width=".02"/>`;
 }
 
+// ---- premoves: queue moves while the opponent is to move; each one plays the instant the turn comes back.
+// The queued moves are drawn on the board in red. Clicking an empty square, right-clicking or Esc cancels them all.
+function canPremove() {
+  if (!S.chess || S.promoPending || S.view !== liveIndex() || S.settings.premove === false) return false;
+  if (S.mode === 'play') return !!S.game && S.chess.turn() !== S.game.playerColor;
+  if (S.mode === 'online') return !!(window.WP_ONLINE && window.WP_ONLINE.canPremove());
+  return false;
+}
+const myColor = () => (S.game ? S.game.playerColor : 'w');
+const isLastRank = (sq) => sq[1] === '8' || sq[1] === '1';
+const showsPremoves = (fen) => S.premoves.length > 0 && !!S.line && S.view === liveIndex() && fen === S.line.fens[S.view];
+function applyPremove(map, pm) {
+  const code = map[pm.from]; const m = Object.assign({}, map); delete m[pm.from];
+  const f0 = pm.from.charCodeAt(0), f1 = pm.to.charCodeAt(0);
+  if (code[1] === 'K' && pm.from[0] === 'e' && Math.abs(f1 - f0) === 2) {   // castling: bring the rook along
+    const rank = pm.from[1]; const [rf, rt] = f1 > f0 ? ['h', 'f'] : ['a', 'd'];
+    if (m[rf + rank] === code[0] + 'R') { delete m[rf + rank]; m[rt + rank] = code[0] + 'R'; }
+  }
+  m[pm.to] = code[1] === 'P' && isLastRank(pm.to) ? code[0] + (pm.promo || 'q').toUpperCase() : code;
+  return m;
+}
+// The board as it will look once the queued premoves have been played
+function premoveMap() {
+  let map = boardMap(S.line.fens[liveIndex()]); const me = myColor();
+  for (const pm of S.premoves) if (map[pm.from] && map[pm.from][0] === me) map = applyPremove(map, pm);
+  return map;
+}
+// Where a piece could go once it is our move. Opponent pieces don't block (they may move away); our own pieces do.
+function premoveDests(sq) {
+  const map = premoveMap(); const me = myColor(); const code = map[sq];
+  if (!code || code[0] !== me) return [];
+  const t = code[1], f = sq.charCodeAt(0) - 97, r = +sq[1] - 1; const out = [];
+  const name = (x, y) => String.fromCharCode(97 + x) + (y + 1);
+  const onBoard = (x, y) => x >= 0 && x < 8 && y >= 0 && y < 8;
+  const mine = (x, y) => { const c = map[name(x, y)]; return !!c && c[0] === me; };
+  const step = (dx, dy) => { if (onBoard(f + dx, r + dy) && !mine(f + dx, r + dy)) out.push(name(f + dx, r + dy)); };
+  const slide = (dx, dy) => { for (let x = f + dx, y = r + dy; onBoard(x, y) && !mine(x, y); x += dx, y += dy) out.push(name(x, y)); };
+  if (t === 'P') {
+    const d = me === 'w' ? 1 : -1;
+    step(0, d); if (r === (me === 'w' ? 1 : 6) && !mine(f, r + d)) step(0, 2 * d);
+    step(-1, d); step(1, d);
+  } else if (t === 'N') {
+    for (const [dx, dy] of [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]]) step(dx, dy);
+  } else if (t === 'K') {
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if (dx || dy) step(dx, dy);
+    const home = me === 'w' ? 0 : 7; const rights = S.chess.fen().split(' ')[2];
+    if (f === 4 && r === home) {
+      if (rights.includes(me === 'w' ? 'K' : 'k') && map[name(7, home)] === me + 'R' && !mine(5, home) && !mine(6, home)) out.push(name(6, home));
+      if (rights.includes(me === 'w' ? 'Q' : 'q') && map[name(0, home)] === me + 'R' && !mine(1, home) && !mine(2, home) && !mine(3, home)) out.push(name(2, home));
+    }
+  } else {
+    const rook = [[1, 0], [-1, 0], [0, 1], [0, -1]], bishop = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    for (const [dx, dy] of t === 'R' ? rook : t === 'B' ? bishop : rook.concat(bishop)) slide(dx, dy);
+  }
+  return out.map(to => ({ from: sq, to, flags: '', captured: map[to] ? map[to][1].toLowerCase() : undefined, promotion: t === 'P' && isLastRank(to) ? 'q' : undefined, pre: true }));
+}
+function queuePremove(from, to, promo) {
+  S.sel = null; S.legal = [];
+  S.premoves.push({ from, to, promo: promo || null });
+  if (canUserMove()) { runPremove(); return; }   // the opponent moved in the meantime: play it right away
+  Snd.clack(.35, 2600);
+  renderPieces(S.line.fens[S.view]); renderAll();
+}
+// Plays the first queued premove if it is our turn. An illegal premove cancels the whole queue, as on chess.com.
+function runPremove() {
+  if (!S.premoves.length || !canUserMove()) return false;
+  const pm = S.premoves[0];
+  const ok = !S.chess.game_over() && S.chess.moves({ square: pm.from, verbose: true }).some(m => m.to === pm.to);
+  if (!ok) { clearPremoves(); return false; }
+  S.premoves.shift();
+  commitUserMove(pm.from, pm.to, pm.promo);
+  return true;
+}
+// Forget the queue without any fuss (game over, new game, looking back)
+function dropPremoves() {
+  if (!S.premoves.length) return; S.premoves = [];
+  const fen = S.line && S.line.fens[S.view]; if (fen) renderPieces(fen);
+}
+// The player cancelled: forget the queue and redraw
+function clearPremoves() {
+  dropPremoves();
+  if (!canUserMove()) { S.sel = null; S.legal = []; }
+  renderHighlights(); renderNav(); boardEl().classList.toggle('can-move', canUserMove() || canPremove());
+}
+// After the position changed under a selected piece, keep the selection only if it still makes sense
+function refreshSelection() {
+  if (!S.sel) return;
+  const live = canUserMove(), pre = !live && canPremove();
+  const code = pieceCodeAt(S.sel, pre);
+  if ((live || pre) && code && code[0] === myColor()) S.legal = live ? S.chess.moves({ square: S.sel, verbose: true }) : premoveDests(S.sel);
+  else { S.sel = null; S.legal = []; }
+}
+function pieceCodeAt(sq, pre) {
+  if (pre) return premoveMap()[sq] || null;
+  const p = S.chess.get(sq); return p ? p.color + p.type.toUpperCase() : null;
+}
+function premoveNote() {
+  const n = S.premoves.length; const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+  return `${n === 1 ? 'Premove' : n + ' premoves'} set. ${touch ? 'Tap an empty square' : 'Right-click or press Esc'} to cancel.`;
+}
+
 // ---- input: click and drag
 let dragState = null;
+let lastPointerType = 'mouse';
 function canUserMove() {
   if (!S.chess || S.promoPending || S.view !== liveIndex()) return false;
   if (S.mode === 'play') return !!S.game && S.chess.turn() === S.game.playerColor && !S.thinking;
@@ -1241,28 +1352,32 @@ function sqFromEvent(e) {
   if (c < 0 || c > 7 || r < 0 || r > 7) return null; return crToSq(c, r);
 }
 function selectSq(sq) {
-  S.sel = sq; S.legal = sq ? S.chess.moves({ square: sq, verbose: true }) : []; renderHighlights();
+  S.sel = sq; S.legal = !sq ? [] : canUserMove() ? S.chess.moves({ square: sq, verbose: true }) : canPremove() ? premoveDests(sq) : [];
+  renderHighlights();
 }
 function onPointerDown(e) {
+  lastPointerType = e.pointerType || 'mouse';
   if (e.button !== undefined && e.button !== 0) return;
-  if (!canUserMove()) { if (S.sel) selectSq(null); return; }
+  const live = canUserMove(), pre = !live && canPremove();
+  if (!live && !pre) { if (S.sel) selectSq(null); return; }
   const sq = sqFromEvent(e); if (!sq) return;
-  const piece = S.chess.get(sq);
   if (S.sel && S.legal.some(m => m.to === sq)) { tryUserMove(S.sel, sq); return; }
-  if (piece && piece.color === S.chess.turn()) {
+  const code = pieceCodeAt(sq, pre);
+  if (code && code[0] === (pre ? myColor() : S.chess.turn())) {
     const wasSel = S.sel === sq; selectSq(sq);
     const p = pieceEls.find(x => x.sq === sq);
-    dragState = { from: sq, startX: e.clientX, startY: e.clientY, active: false, el: p ? p.el : null, ghost: null, wasSel, hover: null, pid: e.pointerId };
+    dragState = { from: sq, code, startX: e.clientX, startY: e.clientY, active: false, el: p ? p.el : null, ghost: null, wasSel, hover: null, pid: e.pointerId };
     try { boardEl().setPointerCapture(e.pointerId); } catch (_) {}
     e.preventDefault();
-  } else if (S.sel) selectSq(null);
+  } else if (pre && S.premoves.length) clearPremoves();   // a click elsewhere on the board cancels the premoves
+  else if (S.sel) selectSq(null);
 }
 function onPointerMove(e) {
   if (!dragState) return;
   if (!dragState.active) {
     if (Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY) < 5) return;
     dragState.active = true;
-    const g = document.createElement('div'); g.className = 'ghost'; g.innerHTML = pieceSVG(S.chess.get(dragState.from).color + S.chess.get(dragState.from).type.toUpperCase());
+    const g = document.createElement('div'); g.className = 'ghost'; g.innerHTML = pieceSVG(dragState.code);
     boardEl().appendChild(g); dragState.ghost = g; if (dragState.el) dragState.el.classList.add('lift');
   }
   const rect = boardEl().getBoundingClientRect(); const sqpx = rect.width / 8;
@@ -1284,16 +1399,22 @@ function onPointerUp(e) {
 }
 function tryUserMove(from, to, dragged) {
   const cands = S.legal.filter(m => m.from === from && m.to === to); if (!cands.length) return;
-  if (cands.some(m => m.promotion)) { openPromo(from, to); return; }
-  commitUserMove(from, to);
+  const pre = !!cands[0].pre;
+  if (cands.some(m => m.promotion)) { openPromo(from, to, pre); return; }
+  if (pre) queuePremove(from, to); else commitUserMove(from, to);
 }
-function openPromo(from, to) {
-  S.promoPending = true; const el = $('#promo'); const color = S.chess.turn(); const [c, r] = sqToCR(to);
+function openPromo(from, to, pre = false) {
+  S.promoPending = true; const el = $('#promo'); const color = pre ? myColor() : S.chess.turn(); const [c, r] = sqToCR(to);
   const top = r === 0; el.style.left = (c * 12.5) + '%'; el.style.top = top ? '0' : 'auto'; el.style.bottom = top ? 'auto' : '0';
   el.innerHTML = ['q', 'r', 'b', 'n'].map(p => `<button data-p="${p}" aria-label="Promote to ${({ q: 'queen', r: 'rook', b: 'bishop', n: 'knight' })[p]}">${pieceSVG(color + p.toUpperCase())}</button>`).join('');
   if (!top) el.style.flexDirection = 'column-reverse'; else el.style.flexDirection = 'column';
   el.hidden = false; el.querySelector('button').focus();
-  el.onclick = (ev) => { const b = ev.target.closest('button'); if (!b) return; closePromo(); commitUserMove(from, to, b.dataset.p); };
+  el.onclick = (ev) => {
+    const b = ev.target.closest('button'); if (!b) return; closePromo();
+    if (!pre) { commitUserMove(from, to, b.dataset.p); return; }
+    runPremove();                      // the opponent may have moved while the picker was open: older premoves go first
+    queuePremove(from, to, b.dataset.p);
+  };
 }
 function closePromo() { $('#promo').hidden = true; S.promoPending = false; }
 function commitUserMove(from, to, promo) {
@@ -1466,7 +1587,7 @@ function startGame() {
   S.chess = new Chess();
   S.line = newLine(START_FEN, names, subs, { headers: { Date: new Date().toISOString().slice(0, 10).replace(/-/g, '.') } });
   S.game = { playerColor: pc, elo: st.elo, opp: persona ? persona.id : null, tc: tc.id, clock: { w: tc.base * 1000, b: tc.base * 1000, running: null, last: 0 }, lastEngineScore: null };
-  S.view = 0; S.sel = null; S.legal = []; S.orientation = pc; S.review = null; S.bannerOpen = false;
+  S.view = 0; S.sel = null; S.legal = []; S.premoves = []; S.orientation = pc; S.review = null; S.bannerOpen = false;
   if (ENG.main) ENG.main.send('ucinewgame');
   setMode('play');
   renderCoords(); renderPieces(START_FEN, false); renderAll();
@@ -1485,7 +1606,7 @@ function afterMove(mv) {
     g.clock.running = mv.color === 'w' ? 'b' : 'w'; g.clock.last = now;
     if (L.moves.length === 1) { g.clock.running = 'b'; }
   }
-  S.view = liveIndex();
+  S.view = liveIndex(); refreshSelection();
   if (S.chess.in_check()) Snd.check(); else if (mv.captured) Snd.capture(); else Snd.move();
   if (tc.base) Snd.press();
   renderPieces(L.fens[S.view]); renderAll();
@@ -1493,6 +1614,7 @@ function afterMove(mv) {
   const end = checkEnd(mv);
   if (end) { finishGame(end.result, end.reason); return; }
   if (S.chess.turn() !== g.playerColor) engineMove();
+  else if (S.premoves.length) setTimeout(runPremove, 0);
   save();
 }
 function spokenSan(san) { return san.replace(/^K/, 'King ').replace(/^Q/, 'Queen ').replace(/^R/, 'Rook ').replace(/^B/, 'Bishop ').replace(/^N/, 'Knight ').replace('x', ' takes ').replace('+', ' check').replace('#', ' checkmate').replace('O-O-O', 'castles long').replace('O-O', 'castles'); }
@@ -1545,12 +1667,13 @@ async function engineMove() {
   }
   if (mv) afterMove(mv);
 }
-function setThinking(on) { S.thinking = on; renderPlates(); boardEl().classList.toggle('can-move', canUserMove()); }
+function setThinking(on) { S.thinking = on; renderPlates(); boardEl().classList.toggle('can-move', canUserMove() || canPremove()); }
 function finishGame(result, reason) {
   const L = S.line, g = S.game;
   L.result = result; L.reason = reason;
   if (g) { if (g.clock.running && tcById(g.tc).base) { g.clock[g.clock.running] = Math.max(0, remaining(g.clock.running)); } g.clock.running = null; }
   S.engineToken++; if (ENG.main) ENG.main.cancelAll(); S.thinking = false;
+  dropPremoves(); S.sel = null; S.legal = []; closePromo();
   setMode('over'); S.bannerOpen = true;
   recordStockfishGame();
   Snd.end(); renderAll(); save();
@@ -1592,6 +1715,7 @@ function takeback() {
   n = Math.min(n, L.moves.length);
   if (S.chess.turn() === g.playerColor && L.moves.length === 1 && g.playerColor === 'b') n = 0;
   if (!n) { toast('There is no move of yours to take back yet.'); return; }
+  S.premoves = [];
   for (let i = 0; i < n; i++) { S.chess.undo(); L.moves.pop(); L.fens.pop(); }
   g.takebacks = (g.takebacks || 0) + 1;
   if (tcById(g.tc).base) { g.clock.running = L.moves.length ? S.chess.turn() : null; g.clock.last = performance.now(); }
@@ -1612,7 +1736,7 @@ function abandonGame() {
   if (window.WP_ONLINE) window.WP_ONLINE.leave();
   trainerStop();
   S.engineToken++; if (ENG.main) ENG.main.cancelAll();
-  S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0; S.bannerOpen = false; S.thinking = false;
+  S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0; S.bannerOpen = false; S.thinking = false; S.premoves = [];
   S.orientation = S.settings.color === 'b' ? 'b' : 'w';
   setMode('idle'); renderCoords(); renderPieces(START_FEN, true); renderAll(); save();
 }
@@ -1623,6 +1747,7 @@ function resumeGame() {
 }
 function setMode(m) {
   const prev = S.mode; S.mode = m;
+  if (m !== 'play' && m !== 'online') S.premoves = [];
   $('#setupCard').hidden = m !== 'idle';
   $('#reviewCta').hidden = m !== 'idle';
   $('#playActions').hidden = m !== 'play';
@@ -1729,7 +1854,8 @@ function renderNav() {
   $('#navFirst').disabled = $('#navPrev').disabled = S.view <= 0;
   $('#navNext').disabled = $('#navLast').disabled = S.view >= n;
   const note = $('#viewNote');
-  if (S.mode === 'play' && S.view < n) note.textContent = 'Looking back. Press → or End to return to the game.';
+  if (S.premoves.length && S.view === n && (S.mode === 'play' || S.mode === 'online')) note.textContent = premoveNote();
+  else if (S.mode === 'play' && S.view < n) note.textContent = 'Looking back. Press → or End to return to the game.';
   else if (S.mode === 'paused') note.textContent = 'Game paused. Your clocks are stopped.';
   else if (S.mode === 'puzzle' && T.kind === 'puzzle' && PZ.p) note.textContent = ({ intro: 'Watch the opponent\u2019s move…', solving: `Your turn: find the best move for ${colorName(PZ.color)}.`, reply: 'Correct! Keep going…', wrong: 'Not this one. Try again.', solved: 'Solved!', solvedHelp: 'Solved with help.', showing: 'Showing the solution…', shown: 'Solution shown.' })[PZ.state] || '';
   else if (S.mode === 'lesson' && T.kind === 'lesson' && LS.line && LS.phase === 'practice') note.textContent = ({ await: `Your move as ${colorName(LS.color)}.`, reply: 'Opponent to move…', wrong: 'Not the book move. Try again.', done: 'Line complete.' })[LS.state] || '';
@@ -1743,11 +1869,11 @@ function renderAll() {
   if (S.mode === 'review') renderReview();
   if (S.mode === 'puzzle' || S.mode === 'lesson') renderTrainer();
   if (S.mode === 'online' && window.WP_ONLINE) window.WP_ONLINE.render();
-  boardEl().classList.toggle('can-move', canUserMove());
+  boardEl().classList.toggle('can-move', canUserMove() || canPremove());
 }
 function goTo(ply, animate = true) {
   if (!S.line) return; ply = clamp(ply, 0, liveIndex()); if (ply === S.view) return;
-  S.view = ply; S.sel = null; S.legal = []; closePromo();
+  S.view = ply; S.sel = null; S.legal = []; closePromo(); if (ply !== liveIndex()) S.premoves = [];
   renderPieces(S.line.fens[ply], animate); renderAll();
   if ((S.mode === 'review' || S.mode === 'lesson') && ply > 0) { const mv = S.line.moves[ply - 1]; if (mv.captured) Snd.clack(.5, 1300); else Snd.clack(.4, 1600); }
 }
@@ -2127,10 +2253,13 @@ function wire() {
   const b = boardEl();
   b.addEventListener('pointerdown', onPointerDown); b.addEventListener('pointermove', onPointerMove);
   b.addEventListener('pointerup', onPointerUp); b.addEventListener('pointercancel', onPointerUp);
-  b.addEventListener('contextmenu', e => e.preventDefault());
+  b.addEventListener('contextmenu', e => {
+    e.preventDefault(); if (lastPointerType === 'touch') return;
+    if (S.premoves.length) clearPremoves(); else if (S.sel && !dragState) selectSq(null);
+  });
   document.addEventListener('keydown', e => {
     if (e.target.closest('textarea, input')) return;
-    if (e.key === 'Escape') { document.querySelectorAll('.modal-back').forEach(m => m.hidden = true); if (S.promoPending) { closePromo(); renderHighlights(); } if (S.sel) selectSq(null); return; }
+    if (e.key === 'Escape') { document.querySelectorAll('.modal-back').forEach(m => m.hidden = true); if (S.promoPending) { closePromo(); renderHighlights(); } if (S.premoves.length) clearPremoves(); if (S.sel) selectSq(null); return; }
     if (!document.querySelectorAll('.modal-back:not([hidden])').length) {
       if (e.key === 'ArrowLeft') { goTo(S.view - 1); e.preventDefault(); }
       else if (e.key === 'ArrowRight') { goTo(S.view + 1); e.preventDefault(); }
@@ -2534,7 +2663,7 @@ function openOnline(keepGame = false) {
   if (!keepGame || !ON.game) {
     if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
     S.engineToken++; if (ENG.main) ENG.main.cancelAll();
-    S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0; S.bannerOpen = false; S.sel = null; S.legal = [];
+    S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0; S.bannerOpen = false; S.sel = null; S.legal = []; S.premoves = [];
     S.orientation = 'w';
     setMode('online'); renderCoords(); drawBoardCanvas(); renderPieces(START_FEN, false); renderAll();
     if (location.pathname !== '/' && !location.pathname.startsWith('/c/')) history.replaceState(null, '', '/');
@@ -2562,7 +2691,7 @@ function loadGameState(st) {
     firstMoveDeadline: st.firstMoveDeadline != null ? performance.now() + st.firstMoveDeadline : null };
   const c = new Chess(); const L = newLine(START_FEN, { w: st.white.name, b: st.black.name }, { w: ratingText(st.white), b: ratingText(st.black) }, { source: 'online', result: st.result || '*', reason: st.reason || '' });
   for (const u of st.moves) { const m = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || undefined }); if (!m) break; m.uci = u; L.moves.push(m); L.fens.push(c.fen()); }
-  S.chess = c; S.line = L; S.review = null; S.sel = null; S.legal = [];
+  S.chess = c; S.line = L; S.review = null; S.sel = null; S.legal = []; S.premoves = [];
   S.game = { playerColor: you || 'w', you, level: null, tc: st.tc, online: true,
     clock: { w: st.clocks.w, b: st.clocks.b, running: st.status === 'active' && st.clockRunning ? st.turn : null, last: performance.now() } };
   S.orientation = you || 'w'; S.view = liveIndex(); S.bannerOpen = st.status !== 'active' && !!st.result;
@@ -2581,11 +2710,12 @@ function onRemoteMove(d) {
     const atLive = S.view === L.fens.length - 2; if (atLive) S.view = liveIndex();
     if (S.chess.in_check()) Snd.check(); else if (m.captured) Snd.capture(); else Snd.move();
     if (atLive) renderPieces(L.fens[S.view]);
-    S.sel = null; S.legal = [];
+    refreshSelection();
   } else { openGame(g.id, true); return; }
   S.game.clock.w = d.clocks.w; S.game.clock.b = d.clocks.b; S.game.clock.running = d.clockRunning ? d.turn : null; S.game.clock.last = performance.now();
   g.drawOffer = d.drawOffer; if (L.moves.length >= 2) g.firstMoveDeadline = null; else if (L.moves.length === 1) g.firstMoveDeadline = performance.now() + 30000;
   renderAll();
+  runPremove();   // our turn again: a queued premove goes out straight away
 }
 async function onlineMove(mv) {
   const g = ON.game; if (!g) return;
@@ -2605,7 +2735,7 @@ function onGameEnd(d) {
   g.status = d.status; g.result = d.result; g.reason = d.reason; g.diff = d.diff; g.drawOffer = null; g.firstMoveDeadline = null;
   S.line.result = d.result || '*'; S.line.reason = d.reason;
   S.game.clock.w = d.clocks.w; S.game.clock.b = d.clocks.b; S.game.clock.running = null;
-  S.bannerOpen = true; S.sel = null; S.legal = []; closePromo();
+  dropPremoves(); S.bannerOpen = true; S.sel = null; S.legal = []; closePromo();
   Snd.end(); renderAll(); announce(resultSentence());
   loadMe().then(loadMyGames);
 }
@@ -2867,6 +2997,7 @@ async function bootOnline() {
 }
 window.WP_ONLINE = {
   canMove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() === ON.game.you),
+  canPremove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() !== ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
   leave: leaveOnline, boot: bootOnline, tc: () => ON.tc,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,

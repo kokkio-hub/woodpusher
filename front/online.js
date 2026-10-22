@@ -74,7 +74,7 @@ function openOnline(keepGame = false) {
   if (!keepGame || !ON.game) {
     if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
     S.engineToken++; if (ENG.main) ENG.main.cancelAll();
-    S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0; S.bannerOpen = false; S.sel = null; S.legal = [];
+    S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0; S.bannerOpen = false; S.sel = null; S.legal = []; S.premoves = [];
     S.orientation = 'w';
     setMode('online'); renderCoords(); drawBoardCanvas(); renderPieces(START_FEN, false); renderAll();
     if (location.pathname !== '/' && !location.pathname.startsWith('/c/')) history.replaceState(null, '', '/');
@@ -102,7 +102,7 @@ function loadGameState(st) {
     firstMoveDeadline: st.firstMoveDeadline != null ? performance.now() + st.firstMoveDeadline : null };
   const c = new Chess(); const L = newLine(START_FEN, { w: st.white.name, b: st.black.name }, { w: ratingText(st.white), b: ratingText(st.black) }, { source: 'online', result: st.result || '*', reason: st.reason || '' });
   for (const u of st.moves) { const m = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || undefined }); if (!m) break; m.uci = u; L.moves.push(m); L.fens.push(c.fen()); }
-  S.chess = c; S.line = L; S.review = null; S.sel = null; S.legal = [];
+  S.chess = c; S.line = L; S.review = null; S.sel = null; S.legal = []; S.premoves = [];
   S.game = { playerColor: you || 'w', you, level: null, tc: st.tc, online: true,
     clock: { w: st.clocks.w, b: st.clocks.b, running: st.status === 'active' && st.clockRunning ? st.turn : null, last: performance.now() } };
   S.orientation = you || 'w'; S.view = liveIndex(); S.bannerOpen = st.status !== 'active' && !!st.result;
@@ -121,11 +121,12 @@ function onRemoteMove(d) {
     const atLive = S.view === L.fens.length - 2; if (atLive) S.view = liveIndex();
     if (S.chess.in_check()) Snd.check(); else if (m.captured) Snd.capture(); else Snd.move();
     if (atLive) renderPieces(L.fens[S.view]);
-    S.sel = null; S.legal = [];
+    refreshSelection();
   } else { openGame(g.id, true); return; }
   S.game.clock.w = d.clocks.w; S.game.clock.b = d.clocks.b; S.game.clock.running = d.clockRunning ? d.turn : null; S.game.clock.last = performance.now();
   g.drawOffer = d.drawOffer; if (L.moves.length >= 2) g.firstMoveDeadline = null; else if (L.moves.length === 1) g.firstMoveDeadline = performance.now() + 30000;
   renderAll();
+  runPremove();   // our turn again: a queued premove goes out straight away
 }
 async function onlineMove(mv) {
   const g = ON.game; if (!g) return;
@@ -145,7 +146,7 @@ function onGameEnd(d) {
   g.status = d.status; g.result = d.result; g.reason = d.reason; g.diff = d.diff; g.drawOffer = null; g.firstMoveDeadline = null;
   S.line.result = d.result || '*'; S.line.reason = d.reason;
   S.game.clock.w = d.clocks.w; S.game.clock.b = d.clocks.b; S.game.clock.running = null;
-  S.bannerOpen = true; S.sel = null; S.legal = []; closePromo();
+  dropPremoves(); S.bannerOpen = true; S.sel = null; S.legal = []; closePromo();
   Snd.end(); renderAll(); announce(resultSentence());
   loadMe().then(loadMyGames);
 }
@@ -407,6 +408,7 @@ async function bootOnline() {
 }
 window.WP_ONLINE = {
   canMove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() === ON.game.you),
+  canPremove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() !== ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
   leave: leaveOnline, boot: bootOnline, tc: () => ON.tc,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
