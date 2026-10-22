@@ -6,7 +6,7 @@ Chess on a hand-drawn board: play people online with matchmaking, play Stockfish
 - **Premoves, like chess.com**: while your opponent (or Stockfish) is thinking, queue one or more moves. They show on the board in red and each one plays the instant the turn comes back. Click an empty square, right-click or press Esc to cancel. Can be switched off in Settings.
 - **The server is the referee**: every move is checked for legality on the server, and the clocks run on the server. Games survive a server restart (for example a new deploy) without anyone losing time.
 - **Top-10 opponents**: bots in the style of the FIDE top 10. Each plays the player's real openings, from a book built out of their over-the-board games, then Stockfish picks among its best moves with a nudge towards that player's habits (sharpness, queen trades, sacrifices, pawn storms, how hard they avoid draws).
-- **Eight piece styles and six boards**, from club wood and antique ivory to frosted and modern glass, picked in Settings.
+- **Eight piece styles and nine boards**, from club wood and antique ivory to frosted and modern glass, picked in Settings. The four wooden boards (walnut & maple, rosewood & boxwood, mahogany & bird's-eye maple, smoked oak & ash) are generated in the browser at the exact pixel size of your screen, with pores, fibres and growth rings down to single pixels.
 - **Offline features** run in the browser: Stockfish 10 (WebAssembly), 94 engine-checked puzzles, 18 openings with 49 annotated lines, and full game review.
 
 ## Run it on your own computer

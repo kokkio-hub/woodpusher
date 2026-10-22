@@ -42,14 +42,17 @@ const PIECE_STYLES = {
 const STYLE_ORDER = ['wood', 'ivory', 'metal', 'marble', 'diagram', 'bauhaus', 'frost', 'crystal'];
 
 const BOARDS = {
-  wood:   { name: 'Walnut & maple', swatch: ['#e3c590', '#8a5a36'] },
+  wood:     { name: 'Walnut & maple', swatch: ['#edd5a6', '#865937'] },
+  rosewood: { name: 'Rosewood & boxwood', swatch: ['#edd8a1', '#663325'] },
+  mahogany: { name: 'Mahogany & bird\u2019s-eye maple', swatch: ['#efdab0', '#8b4128'] },
+  oak:      { name: 'Smoked oak & ash', swatch: ['#e0ceab', '#7f6247'] },
   marble: { name: 'Marble', swatch: ['#f1efea', '#3d6458'] },
   slate:  { name: 'Slate', swatch: ['#b3bbc1', '#414a54'] },
   paper:  { name: 'Diagram', swatch: ['#f6f1e6', '#cbbfa8'] },
   flat:   { name: 'Bauhaus', swatch: ['#ece6da', '#7d978f'] },
   glass:  { name: 'Glass', swatch: ['#8ea2b8', '#34475f'] },
 };
-const BOARD_ORDER = ['wood', 'marble', 'slate', 'paper', 'flat', 'glass'];
+const BOARD_ORDER = ['wood', 'rosewood', 'mahogany', 'oak', 'marble', 'slate', 'paper', 'flat', 'glass'];
 const curStyle = () => (PIECE_STYLES[S.settings.pieces] ? S.settings.pieces : 'wood');
 const curBoard = () => (BOARDS[S.settings.board] ? S.settings.board : 'wood');
 
@@ -182,7 +185,7 @@ function ensureStone(board) {
   if (board !== 'marble' && board !== 'slate') return;
   const L = board + 'L', D = board + 'D';
   if (!STONETEX[L]) { STONETEX[L] = stoneSync(L, 192); STONETEX[D] = stoneSync(D, 192); STONETEX[board] = 192; }
-  const want = textureNeeds().sq;
+  const want = texForSquare(textureNeeds().sq);
   if ((STONETEX[board] || 0) < want && !STONETEX[board + 'Busy']) {
     STONETEX[board + 'Busy'] = true;
     Promise.all([stoneAsync(L, want), stoneAsync(D, want)]).then(([a, b]) => {
@@ -207,7 +210,7 @@ function paintTexturedSquares(ctx, W, sq, light, dark, inlay, sheen) {
   if (sheen) { const g = ctx.createLinearGradient(0, 0, W, W); g.addColorStop(0, `rgba(255,255,255,${sheen})`); g.addColorStop(.45, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,.1)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, W); }
 }
 function paintOtherBoard(ctx, W, sq, dpr) {
-  const b = curBoard(); if (b === 'wood') return false;
+  const b = curBoard(); if (WOOD_BOARDS[b]) return false;
   if (b === 'marble' || b === 'slate') {
     ensureStone(b);
     paintTexturedSquares(ctx, W, sq, STONETEX[b + 'L'], STONETEX[b + 'D'], b === 'marble' ? 'rgba(70,66,60,.35)' : 'rgba(0,0,0,.35)', b === 'marble' ? .16 : .08);
@@ -244,7 +247,7 @@ function paintOtherBoard(ctx, W, sq, dpr) {
   return false;
 }
 function paintOtherFrame(ctx, W, f, dpr) {
-  const b = curBoard(); if (b === 'wood') return false;
+  const b = curBoard(); if (WOOD_BOARDS[b]) return false;
   const sides = [
     [[0, 0], [W, 0], [W - f, f], [f, f]], [[0, W], [W, W], [W - f, W - f], [f, W - f]],
     [[0, 0], [f, f], [f, W - f], [0, W]], [[W, 0], [W, W], [W - f, W - f], [W - f, f]],
@@ -272,6 +275,26 @@ function paintOtherFrame(ctx, W, f, dpr) {
   return true;
 }
 
+/* ---------------- real wood in the board previews (Settings) ---------------- */
+const BOARD_PREV = {}; let boardPrevBusy = false;
+async function makeBoardPreviews() {
+  if (boardPrevBusy) return; boardPrevBusy = true;
+  try {
+    const s = Math.round(56 * DPR());                       // one preview square, in device pixels
+    for (const id of BOARD_ORDER) {
+      const set = WOOD_BOARDS[id]; if (!set || BOARD_PREV[id]) continue;
+      const [L, D] = await Promise.all([woodAsync(set.light, s, s, s), woodAsync(set.dark, s, s, s)]);
+      const cv = document.createElement('canvas'); cv.width = cv.height = s * 2; const ctx = cv.getContext('2d');
+      [[0, 0, L, 0], [1, 0, D, 1], [0, 1, D, 0], [1, 1, L, 1]].forEach(([c, r, t, rot]) => {
+        ctx.save(); if (rot) { ctx.translate(c * s + s, r * s); ctx.rotate(Math.PI / 2); ctx.drawImage(t, 0, 0); } else ctx.drawImage(t, c * s, r * s); ctx.restore();
+      });
+      ctx.strokeStyle = 'rgba(32,14,4,.5)'; ctx.lineWidth = Math.max(1, DPR() * .7); ctx.beginPath(); ctx.moveTo(s, 0); ctx.lineTo(s, 2 * s); ctx.moveTo(0, s); ctx.lineTo(2 * s, s); ctx.stroke();
+      BOARD_PREV[id] = cv.toDataURL('image/jpeg', .92);
+      const el = document.querySelector(`#boardGrid .bd-${id}`); if (el) { el.classList.add('has-tex'); el.style.backgroundImage = `url(${BOARD_PREV[id]})`; }
+    }
+  } finally { boardPrevBusy = false; }
+}
+
 /* ---------------- settings menu ---------------- */
 // Dark (espresso) or light (walnut on off-white). The board and pieces are drawn the same in both.
 function applyTheme() {
@@ -283,7 +306,7 @@ function applyLook() {
   const wrap = $('#boardWrap'); wrap.dataset.board = curBoard();
   pieceEls.forEach(p => { p.el.innerHTML = pieceSVG(p.code); });
   document.querySelectorAll('[data-pc]').forEach(el => { el.innerHTML = pieceSVG(el.dataset.pc); });
-  ensureStone(curBoard());
+  ensureStone(curBoard()); ensureWood(); scheduleTextureUpgrade();
   drawFrame(); drawBoardCanvas(); renderAll();
 }
 function previewHTML(styleId) {
@@ -293,7 +316,8 @@ function previewHTML(styleId) {
 function renderSettings() {
   const st = curStyle(), bd = curBoard();
   $('#styleGrid').innerHTML = STYLE_ORDER.map(id => `<button class="style-card" data-style="${id}" aria-pressed="${id === st}">${previewHTML(id)}<b>${esc(PIECE_STYLES[id].name)}</b><small>${esc(PIECE_STYLES[id].note)}</small></button>`).join('');
-  $('#boardGrid').innerHTML = BOARD_ORDER.map(id => `<button class="board-card" data-board="${id}" aria-pressed="${id === bd}"><span class="bd-prev bd-${id}" style="--l:${BOARDS[id].swatch[0]};--d:${BOARDS[id].swatch[1]}"></span><span>${esc(BOARDS[id].name)}</span></button>`).join('');
+  $('#boardGrid').innerHTML = BOARD_ORDER.map(id => `<button class="board-card" data-board="${id}" aria-pressed="${id === bd}"><span class="bd-prev bd-${id}${BOARD_PREV[id] ? ' has-tex' : ''}" style="--l:${BOARDS[id].swatch[0]};--d:${BOARDS[id].swatch[1]}${BOARD_PREV[id] ? `;background-image:url(${BOARD_PREV[id]})` : ''}"></span><span>${esc(BOARDS[id].name)}</span></button>`).join('');
+  makeBoardPreviews();
   $('#setSound').checked = Snd.on;
   $('#setPremove').checked = S.settings.premove !== false;
   document.querySelectorAll('#lookSeg .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.look === (S.settings.look === 'light' ? 'light' : 'dark'))));

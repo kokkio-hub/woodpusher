@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Play chess online, against Stockfish, solve puzzles and learn openings on a hand-drawn wooden board.">
-<link rel="icon" href="/favicon.svg?v=39cd535e05" type="image/svg+xml">
+<link rel="icon" href="/favicon.svg?v=b6572ac574" type="image/svg+xml">
 <link rel="preload" href="/fonts/outfit-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <meta name="theme-color" content="#f3f1ef">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Woodpusher</title>
-<link rel="stylesheet" href="/fonts/fonts.css?v=39cd535e05">
-<script src="/look.js?v=39cd535e05"></script>
+<link rel="stylesheet" href="/fonts/fonts.css?v=b6572ac574">
+<script src="/look.js?v=b6572ac574"></script>
 <style>
 /* Layout: a club-room desk in espresso leather, coloured after the logo. The wooden board holds the left of the table; a tan-trimmed stand on the right carries the twin-dial clock, the controls and a paper score sheet. */
 :root {
@@ -154,6 +154,9 @@ button { font: inherit; color: inherit; }
   --coord: #dcbc7a; --coord-shadow: 0 -1px 0 rgba(0,0,0,.75), 0 1px 0 rgba(255,220,170,.14); --string: rgba(219,184,112,.8); --string-shadow: rgba(20,8,3,.5);
   box-shadow: 0 34px 60px -22px rgba(0,0,0,.8), 0 10px 20px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.55);
 }
+.board-wrap[data-board="rosewood"] { --frame-bg: #2e1510; }
+.board-wrap[data-board="mahogany"] { --frame-bg: #4a1e10; }
+.board-wrap[data-board="oak"] { --frame-bg: #33281d; --coord: #e4d1ac; --string: rgba(226,206,168,.7); }
 .board-wrap[data-board="marble"] { --frame-bg: #24413a; --coord: #d6e6df; --string: rgba(214,230,223,.55); }
 .board-wrap[data-board="slate"] { --frame-bg: #2c333b; --coord: #c9d2d9; --string: rgba(200,210,220,.45); --string-shadow: rgba(0,0,0,.35); }
 .board-wrap[data-board="paper"] { --frame-bg: #f4efe4; --coord: #2a2620; --coord-shadow: none; --string: #1d1a16; --string-shadow: transparent; }
@@ -461,6 +464,8 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
 .board-card { align-items: center; text-align: center; font-size: 13.5px; font-weight: 600; }
 .bd-prev { width: 100%; aspect-ratio: 1; border-radius: 3px; background: conic-gradient(var(--l) 25%, var(--d) 0 50%, var(--l) 0 75%, var(--d) 0) 0 0 / 50% 50%; box-shadow: 0 0 0 3px #3a1b0f; }
+.bd-prev.has-tex { background-size: 100% 100%; background-repeat: no-repeat; }
+.bd-wood { box-shadow: 0 0 0 3px #582917; } .bd-rosewood { box-shadow: 0 0 0 3px #462219; } .bd-mahogany { box-shadow: 0 0 0 3px #693520; } .bd-oak { box-shadow: 0 0 0 3px #4d3c2b; }
 .bd-marble { box-shadow: 0 0 0 3px #24413a; } .bd-slate { box-shadow: 0 0 0 3px #2c333b; } .bd-paper { box-shadow: 0 0 0 3px #f4efe4, 0 0 0 4px #1d1a16; }
 .bd-paper { background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(70,60,46,.55) 3px 4px), conic-gradient(#f6f1e6 25%, transparent 0 50%, #f6f1e6 0 75%, transparent 0) 0 0 / 50% 50%, #f6f1e6; }
 .bd-flat { box-shadow: 0 0 0 3px #2f3a37; } .bd-glass { box-shadow: 0 0 0 3px #111b26, 0 0 0 4px rgba(190,220,255,.4); }
@@ -808,10 +813,10 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 <div id="toastHost"></div>
 <div class="sr-only" aria-live="polite" id="live"></div>
 
-<script src="/data.js?v=39cd535e05"></script>
-<script src="/chess.js?v=39cd535e05"></script>
+<script src="/data.js?v=b6572ac574"></script>
+<script src="/chess.js?v=b6572ac574"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=39cd535e05"></script>
+<script src="/app.js?v=b6572ac574"></script>
 
 </body>
 </html>

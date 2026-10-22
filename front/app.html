@@ -147,6 +147,9 @@ button { font: inherit; color: inherit; }
   --coord: #dcbc7a; --coord-shadow: 0 -1px 0 rgba(0,0,0,.75), 0 1px 0 rgba(255,220,170,.14); --string: rgba(219,184,112,.8); --string-shadow: rgba(20,8,3,.5);
   box-shadow: 0 34px 60px -22px rgba(0,0,0,.8), 0 10px 20px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.55);
 }
+.board-wrap[data-board="rosewood"] { --frame-bg: #2e1510; }
+.board-wrap[data-board="mahogany"] { --frame-bg: #4a1e10; }
+.board-wrap[data-board="oak"] { --frame-bg: #33281d; --coord: #e4d1ac; --string: rgba(226,206,168,.7); }
 .board-wrap[data-board="marble"] { --frame-bg: #24413a; --coord: #d6e6df; --string: rgba(214,230,223,.55); }
 .board-wrap[data-board="slate"] { --frame-bg: #2c333b; --coord: #c9d2d9; --string: rgba(200,210,220,.45); --string-shadow: rgba(0,0,0,.35); }
 .board-wrap[data-board="paper"] { --frame-bg: #f4efe4; --coord: #2a2620; --coord-shadow: none; --string: #1d1a16; --string-shadow: transparent; }
@@ -454,6 +457,8 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
 .board-card { align-items: center; text-align: center; font-size: 13.5px; font-weight: 600; }
 .bd-prev { width: 100%; aspect-ratio: 1; border-radius: 3px; background: conic-gradient(var(--l) 25%, var(--d) 0 50%, var(--l) 0 75%, var(--d) 0) 0 0 / 50% 50%; box-shadow: 0 0 0 3px #3a1b0f; }
+.bd-prev.has-tex { background-size: 100% 100%; background-repeat: no-repeat; }
+.bd-wood { box-shadow: 0 0 0 3px #582917; } .bd-rosewood { box-shadow: 0 0 0 3px #462219; } .bd-mahogany { box-shadow: 0 0 0 3px #693520; } .bd-oak { box-shadow: 0 0 0 3px #4d3c2b; }
 .bd-marble { box-shadow: 0 0 0 3px #24413a; } .bd-slate { box-shadow: 0 0 0 3px #2c333b; } .bd-paper { box-shadow: 0 0 0 3px #f4efe4, 0 0 0 4px #1d1a16; }
 .bd-paper { background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(70,60,46,.55) 3px 4px), conic-gradient(#f6f1e6 25%, transparent 0 50%, #f6f1e6 0 75%, transparent 0) 0 0 / 50% 50%, #f6f1e6; }
 .bd-flat { box-shadow: 0 0 0 3px #2f3a37; } .bd-glass { box-shadow: 0 0 0 3px #111b26, 0 0 0 4px rgba(190,220,255,.4); }
@@ -905,41 +910,164 @@ function makeNoise(seed) {
   return { n2, fbm, rnd };
 }
 function mixRGB(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
-// Pure pixel generator: runs in a background worker, or on the main thread as a fallback.
-function woodPixels(w, h, pal, seed, o, unit) {
+// Wood with detail down to single device pixels. x runs along the grain, y across it.
+// `scale` is device pixels per board square: the figure (rings, streaks) keeps its size on every screen,
+// while pores, fibres and rays are sized in pixels, so a sharper screen gets finer detail, like a photo.
+// Smooth fields are worked out on a coarse grid and interpolated; the fine detail is computed per pixel.
+function woodPixels(w, h, sp, seed, scale) {
   const N = makeNoise(seed); const px = new Uint8ClampedArray(w * h * 4);
-  const l = pal[0], m = pal[1], k = pal[2];
+  const hs = (a, b) => { let n = Math.imul(a, 374761393) + Math.imul(b, 668265263) + Math.imul(seed, -2048144777); n = Math.imul(n ^ (n >>> 13), 1274126177); n ^= n >>> 16; return (n >>> 0) / 4294967296; };
+  const pal = sp.pal, np = pal.length - 1;
+  const R = sp.ring, F = sp.fib, P = sp.pore, Y = sp.ray, C = sp.curl, E = sp.eye, S = sp.streak;
+  const k = Math.max(.6, scale / 150);
+  const vc = (N.rnd() - .5) * 3, uc = N.rnd() * (w / scale), d0 = R.d0 * (.8 + N.rnd() * .4);
+  const pw = P ? P.w * k : 1, pl = P ? P.len * k : 1, rw = Y ? Y.w * k : 1, rl = Y ? Y.len * k : 1, fpx = F.px * k;
+  const ec = E ? E.cell * scale : 1, er = E ? E.r * k : 1;
+  // ---- coarse grid: grain bend, ring position and its rate of change, broad tone and figure, colour streaks
+  const G = 4, gw = Math.ceil(w / G) + 2, gh = Math.ceil(h / G) + 2, gn = gw * gh;
+  const cB = new Float32Array(gn), cR = new Float32Array(gn), cD = new Float32Array(gn), cT = new Float32Array(gn), cS = new Float32Array(gn);
+  for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+    const u = gx * G / scale, v = gy * G / scale, j = gy * gw + gx;
+    const bend = (N.fbm(u * .22 + 11, v * .5 + 3, 3) - .5) * sp.bend + (N.n2(u * 1.6 + 5, v * 1.1) - .5) * sp.bend * .12;
+    const vb = v + bend; cB[j] = bend;
+    // growth rings: a log sawn lengthwise, so the rings show as stripes and arches
+    const dd = d0 + (u - uc) * R.tilt, dv = vb - vc, rr = Math.sqrt(dv * dv + dd * dd) || 1e-6;
+    const fm = R.freq * (1 + (N.fbm(vb * .9 + 4, u * .15, 2) - .5) * .5);
+    cR[j] = rr * fm + (N.fbm(u * .35 + 2, vb * 1.3, 3) - .5) * R.noise + (N.n2(u * 3 + 9, vb * 9) - .5) * .12;
+    cD[j] = fm / scale * Math.sqrt((dv / rr) * (dv / rr) + (dd * R.tilt / rr) * (dd * R.tilt / rr)) + R.noise * .08 / scale;
+    let t = (N.fbm(u * .45 + 60, vb * .55 + 9, 3) - .5) * sp.tone;
+    if (C) t += Math.sin((u * C.freq + N.fbm(u * .7, vb * .9 + 50, 2) * C.warp) * 6.2832) * C.amt * (.6 + .4 * N.n2(u * .5, vb * 1.3 + 7));
+    cT[j] = t;
+    if (S) {
+      const sn = N.fbm(u * S.along + 80, vb * S.across + 21, 3);
+      let m; if (S.ridge) m = Math.pow(1 - Math.abs(sn * 2 - 1), S.ridge); else { const q = sn <= .5 ? 0 : sn >= .75 ? 1 : (sn - .5) * 4; m = q * q * (3 - 2 * q); }
+      cS[j] = m * S.amt;
+    }
+  }
+  let a0 = 0, a1 = 0, b0 = 0, b1 = 0, w00 = 0, w10 = 0, w01 = 0, w11 = 0;
+  const lerp = (A) => A[a0] * w00 + A[a1] * w10 + A[b0] * w01 + A[b1] * w11;
   for (let y = 0; y < h; y++) {
-    const ny = y / unit;
+    const gyf = y / G, gy0 = Math.floor(gyf), fy0 = gyf - gy0, row0 = gy0 * gw, row1 = row0 + gw;
     for (let x = 0; x < w; x++) {
-      const nx = x / unit;
-      const warp = N.fbm(nx * 2.4, ny * 5.5, 3);
-      const v = ny * o.rings + warp * o.warp + N.fbm(nx * .8 + 3.1, ny * .8, 2) * o.wave;
-      const r = v - Math.floor(v);
-      const g = Math.pow(Math.abs(Math.sin(r * Math.PI)), o.sharp);
-      const fib = N.n2(nx * 6, ny * o.fiber);
-      const fine = N.n2(nx * 14 + 9, ny * o.fiber * 2.6);
-      const mot = N.fbm(nx * 3 + 7, ny * 3 + 1, 2);
-      let t = g * o.gw + fib * o.fw + (fine - .5) * o.fine + (mot - .5) * o.mw + o.bias;
-      if (o.pore) { const pn = N.n2(nx * 70 + 31, ny * 900); if (pn > .84) t += (pn - .84) * o.pore * 6; }
+      const gxf = x / G, gx0 = Math.floor(gxf), fx0 = gxf - gx0;
+      a0 = row0 + gx0; a1 = a0 + 1; b0 = row1 + gx0; b1 = b0 + 1;
+      w00 = (1 - fx0) * (1 - fy0); w10 = fx0 * (1 - fy0); w01 = (1 - fx0) * fy0; w11 = fx0 * fy0;
+      const u = x / scale, vb = y / scale + lerp(cB), yb = vb * scale;
+      let ring = lerp(cR), gr = lerp(cD);
+      // bird's-eye figure: small eyes with a dark centre; the rings swirl round them
+      let eyeDot = 0, eyeIn = 0;
+      if (E) {
+        const ex0 = Math.floor(x / ec), ey0 = Math.floor(y / ec);
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const gx = ex0 + dx, gy = ey0 + dy; if (hs(gx * 7 + 3, gy * 13 + 5) >= E.dens) continue;
+          const r = er * (.7 + hs(gx + 9, gy + 4) * .6), ex = x - (gx + .15 + hs(gx, gy * 3 + 1) * .7) * ec, ey = (y - (gy + .15 + hs(gx * 5 + 2, gy) * .7) * ec) * 1.25;
+          const d = Math.sqrt(ex * ex + ey * ey); if (d > r * 5) continue;
+          const e = E.swirl * Math.exp(-(d / r) * (d / r) * E.fall); ring += e; gr += e * 2 * E.fall * d / (r * r);
+          const q = d / (.9 * k); eyeDot = Math.max(eyeDot, Math.exp(-q * q)); if (d < r * 2.2) eyeIn = Math.max(eyeIn, 1 - d / (r * 2.2));
+        }
+      }
+      const ph = ring - Math.floor(ring), aw = gr < .002 ? .002 : gr > .5 ? .5 : gr * 1.15;
+      // the late wood darkens slowly, then ends in a crisp, anti-aliased edge where the next ring starts
+      let late = Math.pow(ph, R.sharp); if (ph > 1 - aw) { const q = (ph - 1 + aw) / aw; late *= 1 - q * q * (3 - 2 * q); }
+      const edge = R.line ? Math.exp(-((ph > .5 ? 1 - ph : ph * 4) / gr) / (1.3 * k)) * R.line : 0;
+      // fibres: fine lines down to 1-2 px, plus wider streaks
+      const fib = N.n2(x / (fpx * 26), yb / fpx), fib2 = N.n2(x / (fpx * 60) + 40, yb / (fpx * 2.3) + 17);
+      const mid = (N.n2(u * .8 + 30, vb * F.mid) * 2 + N.n2(u * 1.6 + 31, vb * F.mid * 2)) / 3;
+      let t = sp.bias + late * R.w + (fib - .5) * F.w + (fib2 - .5) * F.w * .9 + (mid - .5) * F.mw + edge + lerp(cT);
+      // pores: short dark dashes along the grain; ring-porous woods have most of them in the early wood
+      let dark = 0;
+      if (P) {
+        const ry = yb / pw, row = Math.floor(ry), fy = ry - row;
+        const lr = pl * (.6 + hs(row, 1) * .9), rx = (x + hs(row, 2) * lr * 9) / lr, col = Math.floor(rx), fx = rx - col;
+        const dens = P.dens * (P.early ? (ph < P.early ? 2.6 : .35) : 1);
+        if (hs(row, col * 3 + 7) < dens) {
+          const off = (hs(col, row * 5 + 3) - .5) * .4, a = 1 - Math.abs(fy - .5 - off) * 2 / P.fill;
+          if (a > 0) dark = Math.pow(Math.sin(fx * Math.PI), .7) * Math.min(1, a * 1.6) * P.dark * (.55 + hs(col + 3, row) * .45);
+        }
+      }
+      // rays: tiny flecks across the grain (maple fleck, oak flake)
+      let fleck = 0;
+      if (Y) {
+        const cx = x / rw, cxi = Math.floor(cx), fx = cx - cxi;
+        const lr = rl * (.5 + hs(cxi, 11) * 1.2), cy = (yb + hs(cxi, 12) * lr * 7) / lr, cyi = Math.floor(cy), fy = cy - cyi;
+        if (hs(cxi * 3 + 1, cyi) < Y.dens) { const a = 1 - Math.abs(fx - .5) * 2; if (a > 0) fleck = Math.pow(Math.sin(fy * Math.PI), .8) * Math.min(1, a * 1.5) * Y.amt; }
+      }
       t = t < 0 ? 0 : t > 1 ? 1 : t;
-      let a, b, f; if (t < .5) { a = l; b = m; f = t * 2; } else { a = m; b = k; f = (t - .5) * 2; }
+      const ft = t * np, i0 = ft >= np ? np - 1 : Math.floor(ft), f = ft - i0, A = pal[i0], B = pal[i0 + 1];
+      let r = A[0] + (B[0] - A[0]) * f, g = A[1] + (B[1] - A[1]) * f, b = A[2] + (B[2] - A[2]) * f;
+      if (S) { const m = lerp(cS); r += (S.col[0] - r) * m; g += (S.col[1] - g) * m; b += (S.col[2] - b) * m; }
+      if (eyeIn) { const m = eyeIn * E.light; r += (255 - r) * m; g += (248 - g) * m; b += (225 - b) * m; }
+      if (eyeDot) { const m = eyeDot * E.dark; r *= 1 - m; g *= 1 - m * 1.06; b *= 1 - m * 1.18; }
+      if (dark) { const m = 1 - dark; r *= m; g *= m; b *= m * .96; }
+      if (fleck) { const c = sp.rayCol; r += (c[0] - r) * fleck; g += (c[1] - g) * fleck; b += (c[2] - b) * fleck; }
       const i = (y * w + x) * 4;
-      px[i] = a[0] + (b[0] - a[0]) * f; px[i + 1] = a[1] + (b[1] - a[1]) * f; px[i + 2] = a[2] + (b[2] - a[2]) * f; px[i + 3] = 255;
+      px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = 255;
     }
   }
   return px;
 }
+// Wood species. pal runs light to dark; ring, fib (fibres), pore, ray, streak, curl (figure) and eye (bird's-eye) shape the grain.
 const WOOD = {
-  maple:  { pal: [[238, 214, 168], [223, 189, 136], [192, 148, 94]], seed: 11, o: { rings: 6, warp: 1.2, wave: .9, sharp: 7, fiber: 300, gw: .5, fw: .24, fine: .08, mw: .45, bias: .05, pore: 0 } },
-  walnut: { pal: [[150, 99, 61], [116, 72, 42], [74, 43, 23]], seed: 23, o: { rings: 8, warp: 1.5, wave: 1.1, sharp: 5, fiber: 320, gw: .5, fw: .26, fine: .1, mw: .5, bias: .08, pore: .5 } },
-  frame:  { pal: [[112, 52, 30], [84, 37, 20], [46, 19, 10]], seed: 37, o: { rings: 11, warp: 1.6, wave: 1.2, sharp: 4, fiber: 340, gw: .5, fw: .28, fine: .1, mw: .45, bias: .1, pore: .45 } },
+  maple: { seed: 11, pal: [[243, 224, 182], [235, 209, 161], [221, 187, 135], [194, 152, 98]], bias: .2, bend: .25, tone: .16,
+    ring: { freq: 8, d0: 1.3, tilt: .35, noise: .54, sharp: 4.5, w: .28, line: .09 },
+    fib: { px: 2.2, w: .14, mid: 7, mw: .12 }, pore: { w: 1.4, len: 4, dens: .035, dark: .1, fill: .7 },
+    ray: { w: 1.4, len: 5, dens: .035, amt: .22 }, rayCol: [206, 160, 108], curl: { freq: 6, amt: .025, warp: 1.2 } },
+  walnut: { seed: 23, pal: [[166, 114, 74], [134, 88, 54], [102, 63, 37], [64, 37, 21]], bias: .2, bend: .35, tone: .24,
+    ring: { freq: 7, d0: .9, tilt: .5, noise: .72, sharp: 3.5, w: .4, line: .1 },
+    fib: { px: 2, w: .2, mid: 5, mw: .18 }, pore: { w: 1.8, len: 9, dens: .22, dark: .45, fill: .8 },
+    streak: { col: [74, 56, 52], along: .35, across: 1.6, amt: .35 } },
+  walnutFrame: { seed: 37, pal: [[122, 60, 35], [94, 43, 25], [68, 29, 16], [40, 16, 8]], bias: .22, bend: .30, tone: .22,
+    ring: { freq: 6, d0: 4, tilt: .06, noise: .72, sharp: 3, w: .4, line: .1 },
+    fib: { px: 2, w: .2, mid: 5, mw: .16 }, pore: { w: 1.8, len: 11, dens: .24, dark: .5, fill: .8 } },
+  boxwood: { seed: 41, pal: [[242, 225, 174], [234, 211, 153], [220, 192, 130], [192, 160, 98]], bias: .2, bend: .23, tone: .18,
+    ring: { freq: 14, d0: 2, tilt: .25, noise: .45, sharp: 7, w: .24, line: .07 },
+    fib: { px: 1.8, w: .1, mid: 8, mw: .08 }, pore: { w: 1.4, len: 4, dens: .03, dark: .12, fill: .7 } },
+  rosewood: { seed: 47, pal: [[150, 80, 58], [114, 54, 38], [80, 34, 25], [42, 18, 14]], bias: .2, bend: .40, tone: .28,
+    ring: { freq: 8, d0: 1, tilt: .5, noise: .81, sharp: 3, w: .35, line: .08 },
+    fib: { px: 2, w: .2, mid: 5, mw: .16 }, pore: { w: 2, len: 10, dens: .2, dark: .5, fill: .8 },
+    streak: { col: [30, 14, 16], along: .5, across: 4, ridge: 6, amt: .6 } },
+  rosewoodFrame: { seed: 53, pal: [[108, 58, 42], [82, 39, 27], [58, 24, 18], [30, 13, 10]], bias: .2, bend: .40, tone: .26,
+    ring: { freq: 7, d0: 4, tilt: .06, noise: .81, sharp: 3, w: .35, line: .08 },
+    fib: { px: 2, w: .2, mid: 5, mw: .16 }, pore: { w: 2, len: 12, dens: .2, dark: .5, fill: .8 },
+    streak: { col: [18, 8, 9], along: .5, across: 4, ridge: 6, amt: .6 } },
+  mahogany: { seed: 59, pal: [[164, 82, 52], [138, 63, 38], [108, 45, 27], [74, 29, 16]], bias: .22, bend: .15, tone: .18,
+    ring: { freq: 6, d0: 5, tilt: .08, noise: .54, sharp: 3, w: .3, line: .06 },
+    fib: { px: 2, w: .18, mid: 6, mw: .14 }, pore: { w: 2, len: 12, dens: .25, dark: .45, fill: .8 },
+    streak: { col: [184, 100, 64], along: .12, across: 3.5, amt: .32 } },
+  mahoganyFrame: { seed: 61, pal: [[117, 62, 40], [100, 49, 30], [79, 35, 20], [55, 22, 12]], bias: .22, bend: .20, tone: .2,
+    ring: { freq: 6, d0: 4, tilt: .06, noise: .54, sharp: 3, w: .3, line: .06 },
+    fib: { px: 2, w: .18, mid: 6, mw: .14 }, pore: { w: 2, len: 13, dens: .25, dark: .45, fill: .8 },
+    streak: { col: [150, 80, 50], along: .12, across: 3.5, amt: .3 } },
+  birdseye: { seed: 67, pal: [[246, 230, 194], [238, 216, 172], [224, 194, 144], [196, 158, 106]], bias: .2, bend: .25, tone: .16,
+    ring: { freq: 9, d0: 1.6, tilt: .3, noise: .54, sharp: 6, w: .3, line: .1 },
+    fib: { px: 2.2, w: .13, mid: 7, mw: .12 }, pore: { w: 1.4, len: 4, dens: .035, dark: .1, fill: .7 },
+    ray: { w: 1.6, len: 6, dens: .04, amt: .3 }, rayCol: [200, 150, 98],
+    eye: { cell: .11, dens: .34, r: 2.4, swirl: 2.6, fall: .22, dark: .45, light: .06 } },
+  oak: { seed: 71, pal: [[152, 120, 90], [126, 97, 70], [98, 74, 52], [62, 45, 31]], bias: .2, bend: .25, tone: .2,
+    ring: { freq: 6, d0: .75, tilt: .3, noise: .38, sharp: 2.6, w: .4, line: .1 },
+    fib: { px: 2, w: .18, mid: 5, mw: .14 }, pore: { w: 1.8, len: 6, dens: .2, dark: .38, fill: .75, early: .3 },
+    ray: { w: 2, len: 9, dens: .015, amt: .18 }, rayCol: [176, 146, 112] },
+  oakFrame: { seed: 73, pal: [[91, 72, 54], [76, 58, 42], [59, 44, 31], [37, 27, 19]], bias: .2, bend: .25, tone: .2,
+    ring: { freq: 5, d0: 4, tilt: .06, noise: .63, sharp: 2.5, w: .4, line: .04 },
+    fib: { px: 2, w: .18, mid: 5, mw: .14 }, pore: { w: 1.8, len: 7, dens: .2, dark: .4, fill: .75, early: .3 },
+    ray: { w: 2, len: 9, dens: .015, amt: .15 }, rayCol: [120, 98, 74] },
+  ash: { seed: 79, pal: [[240, 225, 196], [228, 209, 174], [208, 183, 143], [172, 142, 102]], bias: .18, bend: .23, tone: .14,
+    ring: { freq: 5, d0: 1.3, tilt: .4, noise: .59, sharp: 2.2, w: .45, line: .04 },
+    fib: { px: 2, w: .14, mid: 6, mw: .1 }, pore: { w: 1.7, len: 6, dens: .18, dark: .3, fill: .75, early: .28 },
+    ray: { w: 1.4, len: 5, dens: .012, amt: .15 }, rayCol: [196, 168, 128] },
+};
+// Wooden boards: light squares, dark squares and frame. 'wood' keeps its old id so saved settings still work.
+const WOOD_BOARDS = {
+  wood:     { light: 'maple', dark: 'walnut', frame: 'walnutFrame' },
+  rosewood: { light: 'boxwood', dark: 'rosewood', frame: 'rosewoodFrame' },
+  mahogany: { light: 'birdseye', dark: 'mahogany', frame: 'mahoganyFrame' },
+  oak:      { light: 'ash', dark: 'oak', frame: 'oakFrame' },
 };
 const TEXGEN = { worker: null, seq: 0, pending: new Map() };
 function texWorker() {
   if (TEXGEN.worker !== null) return TEXGEN.worker;
   try {
-    const src = `${makeNoise.toString()}\n${woodPixels.toString()}\n${stonePixels.toString()}\nonmessage = (e) => { const d = e.data; const px = (d.gen === 'stone' ? stonePixels : woodPixels)(d.w, d.h, d.pal, d.seed, d.o, d.unit); postMessage({ id: d.id, w: d.w, h: d.h, px }, [px.buffer]); };`;
+    const src = `${makeNoise.toString()}\n${woodPixels.toString()}\n${stonePixels.toString()}\nonmessage = (e) => { const d = e.data; const px = d.gen === 'stone' ? stonePixels(d.w, d.h, d.pal, d.seed, d.o, d.unit) : woodPixels(d.w, d.h, d.sp, d.seed, d.scale); postMessage({ id: d.id, w: d.w, h: d.h, px }, [px.buffer]); };`;
     const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
     w.onmessage = (e) => { const r = TEXGEN.pending.get(e.data.id); if (r) { TEXGEN.pending.delete(e.data.id); r.resolve(e.data); } };
     w.onerror = (e) => { if (e && e.preventDefault) e.preventDefault(); for (const r of TEXGEN.pending.values()) r.reject(); TEXGEN.pending.clear(); TEXGEN.worker = false; };
@@ -948,14 +1076,15 @@ function texWorker() {
   return TEXGEN.worker;
 }
 function pxToCanvas(w, h, px) { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').putImageData(new ImageData(px, w, h), 0, 0); return cv; }
-function woodSync(kind, w, h, unit) { const W = WOOD[kind]; return pxToCanvas(w, h, woodPixels(w, h, W.pal, W.seed, W.o, unit)); }
-function woodAsync(kind, w, h, unit) {
+// scale = device pixels per board square that the texture is made for
+function woodSync(kind, w, h, scale) { const W = WOOD[kind]; const cv = pxToCanvas(w, h, woodPixels(w, h, W, W.seed, scale)); cv.scale = scale; return cv; }
+function woodAsync(kind, w, h, scale) {
   const wk = texWorker(); const W = WOOD[kind];
-  if (!wk) return new Promise(res => setTimeout(() => res(woodSync(kind, w, h, unit)), 0));
+  if (!wk) return new Promise(res => setTimeout(() => res(woodSync(kind, w, h, scale)), 0));
   return new Promise((resolve) => {
     const id = ++TEXGEN.seq;
-    TEXGEN.pending.set(id, { resolve: (d) => resolve(pxToCanvas(d.w, d.h, new Uint8ClampedArray(d.px))), reject: () => resolve(woodSync(kind, w, h, unit)) });
-    wk.postMessage({ id, w, h, pal: W.pal, seed: W.seed, o: W.o, unit });
+    TEXGEN.pending.set(id, { resolve: (d) => { const cv = pxToCanvas(d.w, d.h, new Uint8ClampedArray(d.px)); cv.scale = scale; resolve(cv); }, reject: () => resolve(woodSync(kind, w, h, scale)) });
+    wk.postMessage({ id, w, h, sp: W, seed: W.seed, scale });
   });
 }
 function overlayTile(size, seed, fn) {
@@ -970,17 +1099,16 @@ function overlayTile(size, seed, fn) {
   return cv.toDataURL('image/png');
 }
 const DPR = () => Math.min(3, window.devicePixelRatio || 1);
-const TEX = { level: { sq: 0, frame: 0, clock: 0 }, busy: false, again: false };
+// TEX.wood[kind] holds one canvas per wood species; canvas.scale says which square size it was made for.
+const TEX = { wood: {}, busy: false, again: false, ready: false };
 const roundUp = (v, step) => Math.ceil(v / step) * step;
-// Texture sizes the current layout needs, in device pixels
+const SQ_PICK = .36;                                  // each square shows a random 36% window of its texture
+const texForSquare = (sq) => roundUp(sq / SQ_PICK, 32);
+const woodSet = () => WOOD_BOARDS[curBoard()] || null;
+// Sizes the current layout needs, in device pixels: one board square, and the whole frame
 function textureNeeds() {
   const dpr = DPR(); const inner = boardEl().getBoundingClientRect().width || boardPx * .9; const wrap = $('#boardWrap').getBoundingClientRect().width || boardPx;
-  const cw = $('#clockStand').getBoundingClientRect().width || 360;
-  return {
-    sq: clamp(roundUp(inner * dpr / 8 / .36, 128), 384, 1280),
-    frame: clamp(roundUp(wrap * dpr, 128), 512, 2304),
-    clock: clamp(Math.ceil(cw * dpr / 400 * 4) / 4, 1, 3),
-  };
+  return { sq: clamp(Math.ceil(Math.round(inner * dpr) / 8), 24, 480), frame: clamp(Math.round(wrap * dpr), 256, 4096) };
 }
 function frameStrip(cvW) { const band = Math.ceil(cvW * .048) + 2, gap = 14; return { h: band * 4 + gap * 5, band, gap }; }
 function buildOverlays() {
@@ -997,20 +1125,27 @@ function buildOverlays() {
   document.documentElement.style.setProperty('--leather-tex', `url(${leather})`);
   document.documentElement.style.setProperty('--paper-tex', `url(${paper})`);
 }
-// Quick low-resolution pass for the first paint
-function buildQuickTextures() {
-  TEX.maple = woodSync('maple', 256, 256, 256); TEX.walnut = woodSync('walnut', 256, 256, 256);
-  const fw = 640, st = frameStrip(fw); TEX.frame = woodSync('frame', fw, st.h, fw / 1.6);
-  drawFrame(); drawBoardCanvas();
+// Quick small pass for the first paint (and when switching to a wooden board that hasn't been made yet)
+function ensureWood() {
+  const set = woodSet(); if (!set) return;
+  for (const k of [set.light, set.dark]) if (!TEX.wood[k]) TEX.wood[k] = woodSync(k, 128, 128, 46);
+  if (!TEX.wood[set.frame]) { const fw = 384; TEX.wood[set.frame] = woodSync(set.frame, fw, frameStrip(fw).h, fw * .113); TEX.wood[set.frame].fw = fw; }
 }
-// Sharp pass in the background, sized to the screen; re-runs when the board grows or the zoom changes
+function buildQuickTextures() { ensureWood(); TEX.ready = true; drawFrame(); drawBoardCanvas(); }
+// Sharp pass in the background, made for the exact square and frame size on screen, so it is drawn pixel for pixel.
+// Runs again when the board changes size, the zoom changes or another wooden board is picked.
 async function upgradeTextures() {
   if (TEX.busy) { TEX.again = true; return; }
-  const need = textureNeeds(); const L = TEX.level; const jobs = [];
+  const set = woodSet(); if (!set) return;
+  const need = textureNeeds(); const jobs = [];
   TEX.busy = true;
   try {
-    if (need.sq > L.sq) jobs.push(Promise.all([woodAsync('maple', need.sq, need.sq, need.sq), woodAsync('walnut', need.sq, need.sq, need.sq)]).then(([a, b]) => { TEX.maple = a; TEX.walnut = b; L.sq = need.sq; drawBoardCanvas(); }));
-    if (need.frame > L.frame) { const st = frameStrip(need.frame); jobs.push(woodAsync('frame', need.frame, st.h, need.frame / 1.6).then(cv => { TEX.frame = cv; L.frame = need.frame; drawFrame(); })); }
+    for (const k of [set.light, set.dark]) {
+      const cur = TEX.wood[k];
+      if (!cur || cur.scale !== need.sq) { const T = texForSquare(need.sq); jobs.push(woodAsync(k, T, T, need.sq).then(cv => { TEX.wood[k] = cv; if (woodSet() === set) drawBoardCanvas(); })); }
+    }
+    const fc = TEX.wood[set.frame];
+    if (!fc || fc.fw !== need.frame) { const fw = need.frame; jobs.push(woodAsync(set.frame, fw, frameStrip(fw).h, fw * .113).then(cv => { cv.fw = fw; TEX.wood[set.frame] = cv; if (woodSet() === set) drawFrame(); })); }
     await Promise.all(jobs);
   } finally { TEX.busy = false; }
   if (TEX.again) { TEX.again = false; upgradeTextures(); }
@@ -1217,7 +1352,7 @@ function layoutBoard() {
     const inner = boardEl().getBoundingClientRect().width;
     boardEl().style.setProperty('--sq', (inner / 8) + 'px');
     drawFrame(); drawBoardCanvas();
-    if (TEX.maple) scheduleTextureUpgrade();
+    if (TEX.ready) scheduleTextureUpgrade();
   });
 }
 function hash32(n) { n = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); n ^= n >>> 13; n = Math.imul(n, 0xc2b2ae35); n ^= n >>> 16; return (n >>> 0) / 4294967296; }
@@ -1227,29 +1362,32 @@ function drawBoardCanvas() {
   if (!W) return;
   cv.width = cv.height = W; const ctx = cv.getContext('2d'); const sq = W / 8;
   if (paintOtherBoard(ctx, W, sq, dpr)) return;
+  const set = woodSet() || WOOD_BOARDS.wood, sw = BOARDS[curBoard()] ? BOARDS[curBoard()].swatch : BOARDS.wood.swatch;
   for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
-    const light = (r + c) % 2 === 0; const x = c * sq, y = r * sq;
+    const light = (r + c) % 2 === 0;
+    // whole device pixels, so the wood is copied pixel for pixel instead of being resampled (which blurs it)
+    const x = Math.round(c * sq), y = Math.round(r * sq), n = Math.round((c + 1) * sq) - x, m = Math.round((r + 1) * sq) - y, s = Math.max(n, m);
     const name = crToSq(c, r); const id = (name.charCodeAt(0) - 97) + (+name[1]) * 8;
-    ctx.save(); ctx.imageSmoothingQuality = 'high'; ctx.beginPath(); ctx.rect(x, y, sq, sq); ctx.clip();
-    const tex = light ? TEX.maple : TEX.walnut;
+    ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.beginPath(); ctx.rect(x, y, n, m); ctx.clip();
+    const tex = TEX.wood[light ? set.light : set.dark];
     if (tex) {
-      const src = tex.width * .36; const sx = hash32(id * 3 + 1) * (tex.width - src), sy = hash32(id * 7 + 2) * (tex.height - src);
+      const src = tex.scale === Math.ceil(sq) ? s : Math.min(tex.width, s * tex.scale / sq);
+      const sx = Math.floor(hash32(id * 3 + 1) * (tex.width - src)), sy = Math.floor(hash32(id * 7 + 2) * (tex.height - src));
       const rot = ((+name[1]) + (name.charCodeAt(0) - 97)) % 4 < 2;
-      if (rot) { ctx.translate(x + sq / 2, y + sq / 2); ctx.rotate(Math.PI / 2); ctx.drawImage(tex, sx, sy, src, src, -sq / 2, -sq / 2, sq, sq); }
-      else ctx.drawImage(tex, sx, sy, src, src, x, y, sq, sq);
+      if (rot) { ctx.translate(x + s, y); ctx.rotate(Math.PI / 2); ctx.drawImage(tex, sx, sy, src, src, 0, 0, s, s); }
+      else ctx.drawImage(tex, sx, sy, src, src, x, y, s, s);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const tone = (hash32(id * 13 + 5) - .5) * .12;
+      const tone = (hash32(id * 13 + 5) - .5) * .1;
       ctx.fillStyle = tone > 0 ? `rgba(255,236,200,${tone})` : `rgba(40,18,6,${-tone})`;
-      ctx.fillRect(x, y, sq, sq);
+      ctx.fillRect(x, y, n, m);
     } else {
-      ctx.fillStyle = light ? '#e3c590' : '#7a4c2b'; ctx.fillRect(x, y, sq, sq);
+      ctx.fillStyle = light ? sw[0] : sw[1]; ctx.fillRect(x, y, n, m);
     }
     ctx.restore();
   }
-  ctx.imageSmoothingQuality = 'high';
   ctx.strokeStyle = 'rgba(32,14,4,.5)'; ctx.lineWidth = Math.max(1, dpr * .8);
   ctx.beginPath();
-  for (let i = 1; i < 8; i++) { ctx.moveTo(i * sq, 0); ctx.lineTo(i * sq, W); ctx.moveTo(0, i * sq); ctx.lineTo(W, i * sq); }
+  for (let i = 1; i < 8; i++) { const p = Math.round(i * sq); ctx.moveTo(p, 0); ctx.lineTo(p, W); ctx.moveTo(0, p); ctx.lineTo(W, p); }
   ctx.stroke();
   const g = ctx.createLinearGradient(0, 0, W, W);
   g.addColorStop(0, 'rgba(255,244,222,.13)'); g.addColorStop(.42, 'rgba(255,244,222,0)'); g.addColorStop(1, 'rgba(0,0,0,.12)');
@@ -1268,8 +1406,9 @@ function drawFrame() {
   ];
   sides.forEach((s, i) => {
     ctx.save(); ctx.beginPath(); s.pts.forEach(([x, y], j) => j ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.clip();
-    if (TEX.frame) {
-      const t = TEX.frame; const st = frameStrip(t.width); const sy = st.gap + i * (st.band + st.gap); const sh = t.width * .048;
+    const t = TEX.wood[(woodSet() || WOOD_BOARDS.wood).frame];
+    if (t) {
+      const st = frameStrip(t.width); const sy = st.gap + i * (st.band + st.gap); const sh = t.width * .048;
       ctx.imageSmoothingQuality = 'high';
       if (i === 0) ctx.drawImage(t, 0, sy, t.width, sh, 0, 0, W, f);
       else if (i === 1) ctx.drawImage(t, 0, sy, t.width, sh, 0, W - f, W, f);
