@@ -23,12 +23,19 @@ async function meJson(req) {
   return { user: { id: rows[0].id, username: rows[0].username, createdAt: rows[0].created_at, ratings: await ratingsFor(rows[0].id) } };
 }
 
-function login(req, user) {
+// "Remember me" ticked: the login cookie lasts a year and is renewed on every visit, so someone who
+// keeps coming back stays logged in on that device. Not ticked: a cookie the browser forgets when it
+// closes, and the server forgets the session after a day without activity (see the store in index.js).
+export const REMEMBER_MS = 365 * 24 * 60 * 60 * 1000;
+
+function login(req, user, remember) {
   return new Promise((resolve, reject) => {
     req.session.regenerate((err) => {
       if (err) return reject(err);
       req.session.userId = user.id;
       req.session.username = user.username;
+      // Stored with the session, so every later visit keeps the choice made at login
+      req.session.cookie.maxAge = remember ? REMEMBER_MS : null;
       req.session.save((e) => (e ? reject(e) : resolve()));
     });
   });
@@ -53,7 +60,7 @@ export function authRouter({ isPlaying }) {
       [username, username.toLowerCase(), hash],
     );
     if (!rows.length) return res.status(409).json({ error: 'That username is taken. Pick another one.' });
-    await login(req, rows[0]);
+    await login(req, rows[0], req.body?.remember === true);
     res.status(201).json(await meJson(req));
   });
 
@@ -63,7 +70,7 @@ export function authRouter({ isPlaying }) {
     const { rows } = await q('SELECT id, username, pass_hash FROM users WHERE username_lower = $1', [username]);
     const ok = rows.length && (await bcrypt.compare(password, rows[0].pass_hash));
     if (!ok) return res.status(401).json({ error: 'Wrong username or password.' });
-    await login(req, rows[0]);
+    await login(req, rows[0], req.body?.remember === true);
     res.json(await meJson(req));
   });
 

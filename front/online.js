@@ -5,7 +5,7 @@ const ONLINE_TCS = TCS.filter(t => t.base > 0);
 const ON = {
   me: null, loaded: false, sock: null, connected: false, stats: null, tc: '3+2',
   seeking: null, challenge: null, incoming: null, game: null, games: null, authTab: 'login', authError: '', authMsg: '', busy: false,
-  confirmDelete: false, deleteError: '', offlineTick: null,
+  confirmDelete: false, deleteError: '', offlineTick: null, remember: false,
 };
 async function api(path, opts = {}) {
   const r = await fetch('/api' + path, { method: opts.method || 'GET', headers: opts.body ? { 'Content-Type': 'application/json' } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined, credentials: 'same-origin' });
@@ -194,9 +194,10 @@ async function reviewOnlineGame(id) {
 /* ---------------- account ---------------- */
 async function submitAuth(form) {
   const username = form.querySelector('[name=username]').value.trim(); const password = form.querySelector('[name=password]').value;
+  const remember = form.querySelector('[name=remember]').checked; ON.remember = remember;
   ON.authError = ''; ON.busy = true; renderOnlinePanel();
   try {
-    const d = await api(ON.authTab === 'login' ? '/login' : '/register', { method: 'POST', body: { username, password } });
+    const d = await api(ON.authTab === 'login' ? '/login' : '/register', { method: 'POST', body: { username, password, remember } });
     ON.me = d.user; ON.authMsg = '';
     connectSocket(); loadMyGames();
     if (ON.incoming) loadIncoming(ON.incoming.code);
@@ -250,6 +251,7 @@ function authHTML() {
     <form class="form" id="authForm" novalidate>
       <label>Username<input class="input" name="username" id="authUser" autocomplete="username" maxlength="20" required></label>
       <label>Password<input class="input" name="password" id="authPass" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" minlength="${reg ? 8 : 1}" required></label>
+      <div><label class="check"><input type="checkbox" name="remember" id="authRemember" ${ON.remember ? 'checked' : ''}> Remember me</label><p class="fine" style="margin:4px 0 0 28px">Stay logged in on this device, also after closing the browser. Leave it off on a shared computer.</p></div>
       ${ON.authError ? `<p class="err" role="alert">${esc(ON.authError)}</p>` : ''}
       <button class="btn btn-brass" type="submit" ${ON.busy ? 'disabled' : ''}>${reg ? 'Create account' : 'Log in'}</button>
     </form>
@@ -362,6 +364,8 @@ function wireOnline() {
     if (e.target.id === 'authForm') submitAuth(e.target);
     if (e.target.id === 'delForm') deleteAccount(e.target.querySelector('[name=password]').value);
   });
+  // Keep the tick when the panel redraws (an error message, switching between log in and create account)
+  panel.addEventListener('change', (e) => { if (e.target.id === 'authRemember') ON.remember = e.target.checked; });
   panel.addEventListener('click', async (e) => {
     const b = e.target.closest('button'); if (!b || b.disabled) return;
     if (b.dataset.auth) { ON.authTab = b.dataset.auth; ON.authError = ''; renderOnlinePanel(); return; }

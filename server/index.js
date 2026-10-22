@@ -43,11 +43,13 @@ app.use(helmet({
 const PgStore = connectPg(session);
 const sessionMiddleware = session({
   name: 'wp.sid',
-  store: new PgStore({ pool, createTableIfMissing: true, pruneSessionInterval: 60 * 60 }),
+  // ttl: how long the server keeps a session without "Remember me" after the last activity
+  store: new PgStore({ pool, createTableIfMissing: true, pruneSessionInterval: 60 * 60, ttl: 24 * 60 * 60 }),
   secret: SECRET || 'dev-only-secret-change-me-please-123456',
   resave: false,
   saveUninitialized: false,
   rolling: true,
+  // Logging in sets each session's own lifetime from the "Remember me" box (server/auth.js)
   cookie: { httpOnly: true, sameSite: 'lax', secure: PROD, maxAge: 30 * 24 * 60 * 60 * 1000 },
 });
 
