@@ -7,7 +7,7 @@ Chess on a hand-drawn board: play people online with matchmaking, play Stockfish
 - **The server is the referee**: every move is checked for legality on the server, and the clocks run on the server. Games survive a server restart (for example a new deploy) without anyone losing time.
 - **Top-10 opponents**: bots in the style of the FIDE top 10. Each plays the player's real openings, from a book built out of their over-the-board games, then Stockfish picks among its best moves with a nudge towards that player's habits (sharpness, queen trades, sacrifices, pawn storms, how hard they avoid draws).
 - **Eight piece styles and nine boards**, from club wood and antique ivory to frosted and modern glass, picked in Settings. The four wooden boards (walnut & maple, rosewood & boxwood, mahogany & bird's-eye maple, smoked oak & ash) are generated in the browser at the exact pixel size of your screen, with pores, fibres and growth rings down to single pixels.
-- **Offline features** run in the browser: Stockfish 10 (WebAssembly), 94 engine-checked puzzles, 18 openings with 49 annotated lines, and full game review.
+- **Offline features** run in the browser: Stockfish 19 (WebAssembly), 94 engine-checked puzzles, 18 openings with 49 annotated lines, and full game review.
 - **Game review in plain words**: every move is graded from brilliant and great down to blunder. Brilliant moves (sound sacrifices), great moves (the only good move), mistakes and blunders get a short note that says what actually happens: a piece left hanging, a threat not dealt with, a fork, a missed or allowed mate, material won or missed. The notes are worked out from Stockfish's lines, so they only name a tactic the engine's line shows (`front/commentary.js`).
 - **Play through**: replays a reviewed game on the board and pauses at each brilliant or great move, mistake and blunder, with its note, until you press Continue. Three speeds; Space plays and pauses.
 - **Review your Lichess and Chess.com games by username**: type a username, pick one of the 25 most recent games of standard chess, and it opens in the review from that player's side. The server fetches the games (one request at a time per site, with a User-Agent that names Woodpusher, as both sites ask) and keeps each answer for two minutes (`server/import.js`).
@@ -73,11 +73,30 @@ front/         source of the web page
   install.js   installing as an app; sw.js is the service worker
   data/        openings and puzzles
 public/        the built site that the server sends to browsers
-tools/         build script for public/
+tools/         build script for public/; engine-check/ measures the engine (bot strength, review quality)
 test/          end-to-end tests
 ```
 
 After changing anything in `front/`, run `npm run build:front` to rebuild `public/`.
+
+## The engine
+
+Stockfish 19 runs in the player's browser, in a Web Worker, through [stockfish.js](https://github.com/nmrugg/stockfish.js) 19.0.1. Woodpusher uses its "lite, single-threaded" build (`front/vendor/stockfish.js` and `stockfish.wasm`, about 1.9 MB together), with the asm.js build (`stockfish.asm.js`) as the fallback for browsers without WebAssembly.
+
+- **Why lite, single-threaded**: it evaluates with a small neural network, loads quickly on a phone and runs on any host. The full build is stronger but about 99 MB, too much to download for every visitor. The multi-threaded builds need the whole site to be cross-origin isolated (COOP/COEP headers), and add little here because the review already runs up to three engines side by side, one per position.
+- **Game review** searches each position to depth 18 or for 1.7 seconds, whichever comes first, with the two best lines; the progress line shows the depth actually reached. The lite network's evaluations run about a fifth smaller than full-size Stockfish's, so the review scales them by 1.2 (`EVAL_SCALE`) to match the winning-chances curve the grades are made for. Measured on 400 moves of club-level games against full-size Stockfish 19 at depth 20, the review gives the same grade on about 70% of moves and an accuracy within about 1 point. Stockfish 10 managed 52%, with accuracies 12 points too low, partly because its Contempt setting tilted every evaluation towards the side to move.
+- **The Stockfish bot** keeps its recipe (search depth, thinking time, a weighted choice among the best four moves, random moves at the lowest ratings). Stockfish 19 plays that recipe much stronger, so each Elo setting now uses the notch of the recipe that scored even against the old Stockfish 10 bot at the same setting (`ELO_RECIPE` in `front/app.html`). A setting therefore means what it meant before.
+- **The top-10 bots** avoid draws in their own move picker (`front/personas.js`), because modern Stockfish has no Contempt option: a move Stockfish rates a dead draw, or one that repeats a position, counts as worse by that player's contempt.
+
+To move to a newer stockfish.js: `npm pack stockfish@<version>`, copy `bin/stockfish-<v>-lite-single.js` and `.wasm` to `front/vendor/stockfish.js` and `stockfish.wasm`, `bin/stockfish-<v>-asm.js` to `stockfish.asm.js` and `Copying.txt` to `STOCKFISH-COPYING.txt`, update `SF_VERSION` and the CDN line in `front/app.html`, run `npm run build:front`, then check `EVAL_SCALE` and `ELO_RECIPE` again with the scripts in `tools/engine-check/`:
+
+```bash
+# Bot against bot from 16 openings, colours swapped. Here both play notch 1740, the 2000 setting today:
+# an even score means that setting needs no change; otherwise move the new engine's notch until it is even.
+node tools/engine-check/match.mjs new/stockfish.js 1740 old/stockfish.js 1740 32 games.json
+# The review against a deep reference (the full single-threaded build), on games from a match.
+node tools/engine-check/review.mjs games.json 5 ref=full/stockfish-19-single.js:20:6000 lite=new/stockfish.js:18:1700:1.2
+```
 
 ## Updating the top-10 opponents
 

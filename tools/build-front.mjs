@@ -34,6 +34,10 @@ const KEYS = '<span>Keys: ← → step · Home / End · F flips · Space plays a
 must(html.includes(KEYS), 'keys line');
 html = html.replace(KEYS, '<span><span id="footInstall" hidden><a href="#" data-install>Install the app</a> · </span><a href="/leaderboard">Leaderboard</a> · <a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a> · Keys: ← → step · Home / End · F flips · Space plays a review</span>');
 for (const [a, b] of [["const BOOK_BASE = 'books/';", "const BOOK_BASE = '/books/';"], ["url: 'stockfish.js'", "url: '/stockfish.js'"], ["url: 'stockfish.asm.js'", "url: '/stockfish.asm.js'"], ["s.src = 'chess.js'", "s.src = '/chess.js'"]]) { must(app.includes(a), a); app = app.replace(a, b); }
+// The website serves its own engine files, so the CDN copy of the engine (for app.html on its own) goes
+const cdnEngine = /\n  \/\/ Only for opening app\.html on its own[^\n]*\n[^\n]*\n  \{ url: 'https:\/\/cdn\.jsdelivr\.net\/npm\/stockfish@[^\n]*blob: true \},/;
+must(cdnEngine.test(app), 'CDN engine line'); app = app.replace(cdnEngine, '');
+must(!app.includes('cdn.jsdelivr.net') && !app.includes('cdnjs.cloudflare.com'), 'no CDN left in app.js');
 const cut = html.indexOf('</style>') + '</style>'.length;
 const page = `<!doctype html>
 <html lang="en">

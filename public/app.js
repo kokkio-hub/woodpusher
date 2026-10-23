@@ -3,8 +3,8 @@
    Constants
    ===================================================================== */
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-// Stockfish 10 has no Elo setting, so Woodpusher weakens it itself: shallower search, less time,
-// and a softmax choice among the best few moves whose "temperature" rises as the rating falls.
+// Woodpusher weakens Stockfish itself: shallower search, less time, a softmax choice among the best
+// few moves whose "temperature" rises as the rating falls, and random moves at the lowest ratings.
 // The numbers are estimates, not an official calibration.
 const ELO_MIN = 400, ELO_MAX = 2800, ELO_STEP = 50, ELO_DEFAULT = 1200;
 const LEVEL_TO_ELO = { 1: 600, 2: 800, 3: 1000, 4: 1200, 5: 1500, 6: 1800, 7: 2100, 8: 2600 };
@@ -16,11 +16,21 @@ const ELO_BANDS = [
   [1900, 'Strong club player', 'Sees short combinations and rarely gives things away.'],
   [2200, 'Expert', 'Calculates well and grinds out endgames.'],
   [2500, 'Master level', 'Deep tactics and precise technique.'],
-  [Infinity, 'Near full strength', 'Stockfish with almost nothing held back.'],
+  [Infinity, 'Grandmaster level', 'Calculates deeply and rarely slips. The top of the scale.'],
 ];
 const eloBand = (e) => ELO_BANDS.find(x => e < x[0]);
 const eloLabel = (e) => `≈${e} · ${eloBand(e)[1]}`;
+// The recipe was written for Stockfish 10. Stockfish 19 plays the same recipe much stronger (about
+// 340 Elo at the 2000 setting), so each Elo setting now uses the notch of the recipe that scored even
+// against Stockfish 10 at that setting, in bot-against-bot matches from 16 openings with colours swapped.
+const ELO_RECIPE = [[400, 480], [800, 790], [1200, 1100], [1600, 1500], [2000, 1740], [2400, 2050], [2800, 2350]];
 function eloParams(e) {
+  const T = ELO_RECIPE; let x = T[T.length - 1][1];
+  if (e <= T[0][0]) x = T[0][1];
+  else for (let i = 1; i < T.length; i++) if (e <= T[i][0]) { const [e0, x0] = T[i - 1], [e1, x1] = T[i]; x = x0 + (x1 - x0) * (e - e0) / (e1 - e0); break; }
+  return eloRecipe(Math.round(x));
+}
+function eloRecipe(e) {
   const t = clamp((e - ELO_MIN) / (ELO_MAX - ELO_MIN), 0, 1);
   return {
     depth: Math.round(1 + 17 * t),                       // 1 at 400, 18 at 2800
@@ -1026,7 +1036,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
-const BOOK_QS = '?v=993790f1d3';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
+const BOOK_QS = '?v=f6b3254666';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -1085,13 +1095,28 @@ function styleBonus(p, fen, line) {
   if (n && materialOf(c.fen(), me) - before <= -2) b += 18 * w.sac;
   return clamp(b, -30, 30);
 }
-function pickPersonaLine(p, fen, lines, P) {
+// How hard the player plays on against a draw. Stockfish 10 had a Contempt option for this; modern
+// Stockfish scores a draw as a draw, so the bot does it here: a move Stockfish rates a dead draw (0.00),
+// or one that repeats a position from the game, counts `contempt` centipawns less. Between moves about
+// as good as each other the bot then keeps the game going, and it still takes a draw when the
+// alternatives are clearly worse than that.
+const positionKey = (fen) => fen.split(' ').slice(0, 4).join(' ');
+function drawishLine(fen, line, seen) {
+  if (line.mate == null && line.cp === 0) return true;
+  const c = chessAt(fen); const u = line.pv[0];
+  return !!c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || undefined }) && seen.has(positionKey(c.fen()));
+}
+function pickPersonaLine(p, fen, lines, P, history) {
   const ls = lines.filter(l => l && l.pv && l.pv.length); if (!ls.length) return null;
+  const contempt = clamp(p.w.contempt || 0, 0, 60);
+  const seen = new Set((history || []).map(positionKey));
+  const drawish = ls.map(l => contempt > 0 && drawishLine(fen, l, seen));
   const sc = ls.map(lineScore); const best = Math.max(...sc);
-  const window = Math.max(30, P.temp * 1.5);
-  const cand = ls.map((l, i) => ({ l, s: sc[i] })).filter(x => x.s >= best - window);
+  // A drawn best line widens the choice by the contempt, so a keen player looks further for a way to play on
+  const window = Math.max(30, P.temp * 1.5) + (drawish[sc.indexOf(best)] ? contempt : 0);
+  const cand = ls.map((l, i) => ({ l, s: sc[i], d: drawish[i] })).filter(x => x.s >= best - window);
   const T = Math.max(P.temp, 8);
-  const ut = cand.map(x => x.s + (Math.abs(x.s) < 5000 ? styleBonus(p, fen, x.l) : 0));
+  const ut = cand.map(x => x.s - (x.d ? contempt : 0) + (Math.abs(x.s) < 5000 ? styleBonus(p, fen, x.l) : 0));
   const top = Math.max(...ut); const wts = ut.map(v => Math.exp(-(top - v) / T));
   let r = Math.random() * wts.reduce((a, b) => a + b, 0);
   for (let i = 0; i < cand.length; i++) { r -= wts[i]; if (r <= 0) return cand[i].l; }
@@ -1934,15 +1959,26 @@ function setClockNames() {
 }
 
 /* =====================================================================
-   Engine: Stockfish 10 in a Web Worker (WebAssembly first, asm.js fallback)
+   Engine: Stockfish 19 "lite, single-threaded" (stockfish.js 19.0.1) in a Web Worker.
+   WebAssembly first, asm.js as the fallback for browsers without WebAssembly. The lite build
+   evaluates with a small neural network (about 1.9 MB in all) and runs on any host, without the
+   cross-origin isolation headers the multi-threaded builds need.
    ===================================================================== */
+const SF_VERSION = '19';
+// Game review: every position is searched to this depth, or for this long, whichever comes first.
+// Measured on 400 moves of club-level games against full-size Stockfish 19 at depth 20: depth 18 gave
+// the same grade on 70% of moves and accuracy within about 1 point, at roughly 1.2 s per position on one
+// core of the test machine (depth 15: 68%, 2-4 points off, 0.5 s; old Stockfish 10 at depth 15: 52%, 12 points off).
+const REVIEW_DEPTH = 18, REVIEW_MS = 1700, REVIEW_MS_ASM = 1200;
+// The lite network's evaluations run about a fifth smaller than full-size Stockfish 19's, which the
+// winning-chances curve and every grade threshold are made for. Review evaluations are scaled up to match.
+const EVAL_SCALE = 1.2;
 const ENGINE_SOURCES = [
   { url: '/stockfish.js', label: 'WebAssembly' },
   { url: '/stockfish.asm.js', label: 'asm.js' },
-  { url: 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js', label: 'asm.js', blob: true },
 ];
 function spawnWorker(src) {
-  if (src.blob) return new Worker(URL.createObjectURL(new Blob([`importScripts(${JSON.stringify(src.url)});`], { type: 'text/javascript' })));
+  if (src.blob) return new Worker(URL.createObjectURL(new Blob([`importScripts(${JSON.stringify(src.url)});`], { type: 'text/javascript' })) + '#' + encodeURIComponent(src.wasm));
   return new Worker(src.url);
 }
 function bootWorker(src, timeout = 12000) {
@@ -1969,7 +2005,7 @@ function parseInfo(line) {
 }
 class Engine {
   constructor(worker) {
-    this.w = worker; this.q = []; this.cur = null; this.skill = null; this.mpv = 1; this.contempt = 24;
+    this.w = worker; this.q = []; this.cur = null; this.skill = null; this.mpv = 1;
     worker.onmessage = (e) => this.onLine(String(e.data));
     worker.onerror = (e) => { if (e && e.preventDefault) e.preventDefault(); };
     this.send('setoption name Hash value 16');
@@ -1990,7 +2026,6 @@ class Engine {
   next() {
     const job = this.q.shift(); if (!job) return; this.cur = job; job.lines = [];
     const mpv = job.multipv || 1; if (mpv !== this.mpv) { this.send(`setoption name MultiPV value ${mpv}`); this.mpv = mpv; }
-    const ct = job.contempt == null ? 24 : job.contempt; if (ct !== this.contempt) { this.send(`setoption name Contempt value ${ct}`); this.contempt = ct; }
     const sk = job.skill == null ? 20 : job.skill;
     if (sk !== this.skill) { this.send(`setoption name Skill Level value ${sk}`); this.skill = sk; }
     this.send(`position fen ${job.fen}`);
@@ -2005,7 +2040,7 @@ function bootEngine() {
   ENG.ready = (async () => {
     for (const src of ENGINE_SOURCES) {
       const w = await bootWorker(src, src.label === 'WebAssembly' ? 15000 : 40000);
-      if (w) { ENG.source = src; ENG.main = new Engine(w); ENG.pool = [ENG.main]; ENG.status = 'ok'; setEngineStatus(`Stockfish 10 ready · ${src.label}`, 'ok'); return ENG.main; }
+      if (w) { ENG.source = src; ENG.main = new Engine(w); ENG.pool = [ENG.main]; ENG.status = 'ok'; setEngineStatus(`Stockfish ${SF_VERSION} ready · ${src.label}`, 'ok'); return ENG.main; }
     }
     ENG.status = 'bad'; setEngineStatus('Stockfish could not start in this browser. Reload the page to try again.', 'bad');
     return null;
@@ -2100,10 +2135,10 @@ async function engineMove() {
     if (!eng) { setThinking(false); toast('Stockfish is not running, so it cannot reply. Reload the page.'); return; }
     let mt = P.movetime; const tc = tcById(g.tc);
     if (tc.base) { const rem = Math.max(0, remaining(S.chess.turn())); mt = Math.min(mt, Math.max(40, rem / 30 + tc.inc * 600)); }
-    const res = await eng.search({ fen, depth: P.depth, movetime: mt, skill: 20, multipv: persona ? Math.max(4, P.multipv) : P.multipv, contempt: persona ? persona.w.contempt : undefined });
+    const res = await eng.search({ fen, depth: P.depth, movetime: mt, skill: 20, multipv: persona ? Math.max(4, P.multipv) : P.multipv });
     if (token !== S.engineToken || S.mode !== 'play') return;
     if (!res || !res.bestmove) { setThinking(false); return; }
-    const pick = persona ? pickPersonaLine(persona, fen, res.lines || [], P) : P.multipv > 1 ? pickByTemperature(res.lines || [], P.temp) : null;
+    const pick = persona ? pickPersonaLine(persona, fen, res.lines || [], P, S.line.fens) : P.multipv > 1 ? pickByTemperature(res.lines || [], P.temp) : null;
     uci = pick ? pick.pv[0] : res.bestmove; g.lastEngineScore = res.info;
     const minDelay = 260 + Math.random() * 380; const el = performance.now() - t0;
     if (el < minDelay) await sleep(minDelay - el);
@@ -2369,7 +2404,7 @@ async function startReview() {
   S.engineToken++; if (ENG.main) ENG.main.cancelAll();
   const key = lineKey(L);
   if (!S.review || S.review.key !== key) {
-    S.review = { key, evals: [], best: [], pv: [], alt: [], cls: [], acc: [], token: 0, done: false };
+    S.review = { key, evals: [], best: [], pv: [], alt: [], depth: [], cls: [], acc: [], token: 0, done: false };
   }
   apPause();
   S.bannerOpen = false; setMode('review'); S.orientation = S.orientation || 'w';
@@ -2385,8 +2420,10 @@ async function analyse() {
   if (token !== R.token) return;
   if (!engines.length) { $('#rvText').textContent = 'Stockfish is not running, so the game cannot be analysed.'; return; }
   // Two lines per position: the second-best move is what tells an only move (a great move) apart.
+  // Each position stops at REVIEW_DEPTH or after the time limit, whichever comes first; a slow device
+  // may stop short of the depth, and the progress line says how deep it actually got.
   const fast = ENG.source && ENG.source.label === 'WebAssembly';
-  const depth = 15, movetime = fast ? 1700 : 1200;
+  const depth = REVIEW_DEPTH, movetime = fast ? REVIEW_MS : REVIEW_MS_ASM;
   let next = 0;
   const work = async (eng) => {
     while (true) {
@@ -2399,9 +2436,9 @@ async function analyse() {
       if (token !== R.token) return;
       if (!res) { next = Math.min(next, i); return; }
       const stm = L.fens[i].split(' ')[1] === 'w' ? 1 : -1; const info = res.info || { cp: 0, pv: [] };
-      const evOf = (x) => (x.mate != null ? { mate: x.mate * stm } : { cp: (x.cp || 0) * stm });
+      const evOf = (x) => (x.mate != null ? { mate: x.mate * stm } : { cp: Math.round((x.cp || 0) * EVAL_SCALE) * stm });
       R.evals[i] = evOf(info);
-      R.best[i] = res.bestmove; R.pv[i] = info.pv || [];
+      R.best[i] = res.bestmove; R.pv[i] = info.pv || []; (R.depth = R.depth || [])[i] = info.depth || 0;
       const two = res.lines && res.lines[1];
       R.alt[i] = two && two.pv && two.pv.length && two.pv[0] !== res.bestmove ? { ev: evOf(two), move: two.pv[0] } : null;
       onEval();
@@ -2479,7 +2516,7 @@ function renderReview() {
   const R = S.review, L = S.line; if (!R || !L) return;
   const n = L.fens.length; const got = R.evals.filter(Boolean).length;
   $('#rvBar').style.width = (got / n * 100).toFixed(1) + '%';
-  $('#rvText').textContent = got < n ? `Analysing ${got} of ${n} positions · depth 15` : `Analysed ${n} positions · depth 15`;
+  $('#rvText').textContent = (got < n ? `Analysing ${got} of ${n} positions` : `Analysed ${n} positions`) + depthText(R);
   $('#rvProgress').style.opacity = got < n ? 1 : .7;
   // accuracy
   $('#accRow').innerHTML = ['w', 'b'].map(c => {
@@ -2496,6 +2533,12 @@ function renderReview() {
   renderAutoPlay();
 }
 const shortName = (s) => s.length > 14 ? s.slice(0, 13) + '…' : s;
+// The search depth the review actually reached: "depth 18", or a range when some positions stopped earlier.
+function depthText(R) {
+  const ds = (R.depth || []).filter(d => d > 0); if (!ds.length) return '';
+  const lo = Math.min(...ds), hi = Math.max(...ds);
+  return lo === hi ? ` · depth ${hi}` : ` · depth ${lo}–${hi}`;
+}
 function keyMoments() { const R = S.review; if (!R) return []; const out = []; R.cls.forEach((c, i) => { if (c === 'mistake' || c === 'blunder' || c === 'inaccuracy') out.push(i + 1); }); return out; }
 function renderEvalBar() {
   const R = S.review; const ev = R.evals[S.view]; const bar = $('#evalBar');
@@ -2733,7 +2776,7 @@ function snapshot() {
     v: 1, settings: S.settings, mode: S.mode, orientation: S.orientation, view: S.view,
     line: L ? { startFen: L.startFen, sans: L.moves.map(m => m.san), names: L.names, subs: L.subs, headers: L.headers, result: L.result, reason: L.reason, source: L.source, you: L.you || null } : null,
     game: g ? { playerColor: g.playerColor, elo: g.elo, opp: g.opp || null, inBook: !!g.inBook, tc: g.tc, histId: g.histId, takebacks: g.takebacks || 0, clock: { w: Math.max(0, remaining('w')), b: Math.max(0, remaining('b')), running: g.clock.running } } : null,
-    review: S.review ? { v: 2, key: S.review.key, evals: S.review.evals, best: S.review.best, pv: S.review.pv, alt: S.review.alt } : null,
+    review: S.review ? { v: 3, key: S.review.key, evals: S.review.evals, best: S.review.best, pv: S.review.pv, alt: S.review.alt, depth: S.review.depth || [] } : null,
   };
 }
 let saveTimer = null;
@@ -2752,10 +2795,10 @@ function restore(d) {
     if (d.game) S.game = { playerColor: d.game.playerColor, elo: d.game.elo || LEVEL_TO_ELO[d.game.level] || ELO_DEFAULT, opp: personaById(d.game.opp) ? d.game.opp : null, inBook: !!d.game.inBook, tc: d.game.tc, histId: d.game.histId, takebacks: d.game.takebacks || 0, clock: { w: d.game.clock.w, b: d.game.clock.b, running: d.game.clock.running, last: performance.now() }, lastEngineScore: null };
     S.orientation = d.orientation || 'w';
     S.view = clamp(d.view ?? fens.length - 1, 0, fens.length - 1);
-    // v2 reviews also hold Stockfish's second-best move per position; an older one is simply analysed again.
-    if (d.review && d.review.key === lineKey(S.line)) S.review = d.review.v === 2
-      ? { key: d.review.key, evals: d.review.evals || [], best: d.review.best || [], pv: d.review.pv || [], alt: d.review.alt || [], cls: [], acc: [], token: 0, done: false }
-      : { key: d.review.key, evals: [], best: [], pv: [], alt: [], cls: [], acc: [], token: 0, done: false };
+    // v3 reviews were made by Stockfish 19. An older one (Stockfish 10) is simply analysed again.
+    if (d.review && d.review.key === lineKey(S.line)) S.review = d.review.v === 3
+      ? { key: d.review.key, evals: d.review.evals || [], best: d.review.best || [], pv: d.review.pv || [], alt: d.review.alt || [], depth: d.review.depth || [], cls: [], acc: [], token: 0, done: false }
+      : { key: d.review.key, evals: [], best: [], pv: [], alt: [], depth: [], cls: [], acc: [], token: 0, done: false };
     let mode = d.mode;
     if (mode === 'play' || mode === 'paused') mode = S.game ? 'paused' : 'idle';
     if (mode === 'paused') S.view = fens.length - 1;

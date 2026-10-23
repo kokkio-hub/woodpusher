@@ -31,7 +31,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
-      'script-src': ["'self'", 'https://cdnjs.cloudflare.com', "'wasm-unsafe-eval'"],
+      'script-src': ["'self'", "'wasm-unsafe-eval'"],
       'style-src': ["'self'", "'unsafe-inline'"],
       'font-src': ["'self'"],
       'img-src': ["'self'", 'data:', 'blob:'],

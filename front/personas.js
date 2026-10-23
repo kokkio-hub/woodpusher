@@ -68,13 +68,28 @@ function styleBonus(p, fen, line) {
   if (n && materialOf(c.fen(), me) - before <= -2) b += 18 * w.sac;
   return clamp(b, -30, 30);
 }
-function pickPersonaLine(p, fen, lines, P) {
+// How hard the player plays on against a draw. Stockfish 10 had a Contempt option for this; modern
+// Stockfish scores a draw as a draw, so the bot does it here: a move Stockfish rates a dead draw (0.00),
+// or one that repeats a position from the game, counts `contempt` centipawns less. Between moves about
+// as good as each other the bot then keeps the game going, and it still takes a draw when the
+// alternatives are clearly worse than that.
+const positionKey = (fen) => fen.split(' ').slice(0, 4).join(' ');
+function drawishLine(fen, line, seen) {
+  if (line.mate == null && line.cp === 0) return true;
+  const c = chessAt(fen); const u = line.pv[0];
+  return !!c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || undefined }) && seen.has(positionKey(c.fen()));
+}
+function pickPersonaLine(p, fen, lines, P, history) {
   const ls = lines.filter(l => l && l.pv && l.pv.length); if (!ls.length) return null;
+  const contempt = clamp(p.w.contempt || 0, 0, 60);
+  const seen = new Set((history || []).map(positionKey));
+  const drawish = ls.map(l => contempt > 0 && drawishLine(fen, l, seen));
   const sc = ls.map(lineScore); const best = Math.max(...sc);
-  const window = Math.max(30, P.temp * 1.5);
-  const cand = ls.map((l, i) => ({ l, s: sc[i] })).filter(x => x.s >= best - window);
+  // A drawn best line widens the choice by the contempt, so a keen player looks further for a way to play on
+  const window = Math.max(30, P.temp * 1.5) + (drawish[sc.indexOf(best)] ? contempt : 0);
+  const cand = ls.map((l, i) => ({ l, s: sc[i], d: drawish[i] })).filter(x => x.s >= best - window);
   const T = Math.max(P.temp, 8);
-  const ut = cand.map(x => x.s + (Math.abs(x.s) < 5000 ? styleBonus(p, fen, x.l) : 0));
+  const ut = cand.map(x => x.s - (x.d ? contempt : 0) + (Math.abs(x.s) < 5000 ? styleBonus(p, fen, x.l) : 0));
   const top = Math.max(...ut); const wts = ut.map(v => Math.exp(-(top - v) / T));
   let r = Math.random() * wts.reduce((a, b) => a + b, 0);
   for (let i = 0; i < cand.length; i++) { r -= wts[i]; if (r <= 0) return cand[i].l; }
