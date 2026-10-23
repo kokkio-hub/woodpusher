@@ -31,8 +31,14 @@ function connectSocket() {
   s.on('connect', () => { ON.connected = true; if (ON.game && ON.game.status === 'active') openGame(ON.game.id, true); else if (ON.seeking) emitOn('seek', { tc: ON.seeking.tc }); renderOnlineIfShown(); });
   s.on('disconnect', () => { ON.connected = false; renderOnlineIfShown(); });
   s.on('lobby:stats', (d) => { ON.stats = d; if (S.mode === 'online' && !ON.game) renderOnlinePanel(); });
-  s.on('match', (d) => { ON.seeking = null; ON.challenge = null; Snd.bell(659.25, .1); openGame(d.gameId); });
-  s.on('game:current', (d) => { if (!ON.game || ON.game.id !== d.id) { ON.current = d.id; if (S.mode === 'online' || location.pathname === '/') { openOnline(true); openGame(d.id); } } });
+  s.on('match', (d) => {
+    ON.seeking = null; ON.challenge = null; Snd.bell(659.25, .1);
+    document.querySelectorAll('.modal-back').forEach(m => { m.hidden = true; });
+    if (S.mode !== 'online') { const k = parkCurrent(); toast(k === 'bot' ? 'Opponent found! Your bot game is paused. You can resume it after this game.' : 'Opponent found! Your game is starting.'); }
+    attention('Opponent found');
+    openGame(d.gameId);
+  });
+  s.on('game:current', (d) => { if (!ON.game || ON.game.id !== d.id) { ON.current = d.id; if (S.mode === 'online' || location.pathname === '/') { if (S.mode !== 'online') parkCurrent(); openOnline(true); openGame(d.id); } } });
   s.on('game:move', onRemoteMove);
   s.on('game:end', onGameEnd);
   s.on('game:offer', (d) => {
@@ -58,8 +64,12 @@ function renderOnlineIfShown() { if (S.mode === 'online') renderAll(); }
 const oppName = () => { const g = ON.game; if (!g || !S.line) return 'Your opponent'; return S.line.names[g.you === 'w' ? 'b' : 'w']; };
 
 async function loadMe() {
-  try { const d = await api('/me'); ON.me = d.user; } catch (e) { ON.me = null; }
+  // A failed request (offline) keeps whoever was logged in; only the server's answer changes it
+  let known = false;
+  try { const d = await api('/me'); ON.me = d.user; known = true; } catch (e) { ON.me = ON.me || null; }
   ON.loaded = true; renderUserSection();
+  if (known && window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
+  if (window.WP_PLAYERS) window.WP_PLAYERS.refresh();
 }
 async function loadMyGames() {
   if (!ON.me) { ON.games = null; return; }
@@ -81,11 +91,68 @@ function openOnline(keepGame = false) {
   } else setMode('online');
   loadMyGames();
 }
-function leaveOnline() {
-  if (ON.seeking) { emitOn('seek:cancel'); ON.seeking = null; }
-  if (ON.challenge) { emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; }
+// Leaving the lobby keeps your place in the queue (and a challenge link open): you can play a bot or
+// solve puzzles while you wait. cancel: also give those up, for logging out.
+function leaveOnline(cancel = false) {
+  if (cancel && ON.seeking) { emitOn('seek:cancel'); ON.seeking = null; }
+  if (cancel && ON.challenge) { emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; }
   if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
   if (location.pathname !== '/') history.replaceState(null, '', '/');
+}
+
+/* ---------------- waiting for an opponent ---------------- */
+// While you wait you can play a bot or solve puzzles and keep your place in the queue. A bar at the
+// bottom of the page shows the search. When the opponent is found the online game takes the board;
+// a bot game that was still going is paused, and can be resumed after the online game.
+const parkedBotGame = () => { const d = S.parked; return d && d.v === 1 && d.line && d.game && d.line.source === 'play' && d.line.result === '*' ? d : null; };
+const parkedBotName = (d) => d.line.names[d.game.playerColor === 'w' ? 'b' : 'w'] || 'Stockfish';
+function waitHTML() {
+  const pk = parkedBotGame();
+  return `<div class="wait-do"><span class="field-label">While you wait</span><div class="actions"><button class="btn" data-act="wait-bot">${pk ? 'Resume your bot game' : 'Play a bot'}</button><button class="btn" data-act="wait-puzzles">Solve puzzles</button></div>
+    <span class="fine">You keep your place. When ${ON.challenge ? 'your friend joins' : 'an opponent is found'}, the game starts here straight away and a bot game is paused.</span></div>`;
+}
+// Called when an online game is about to take over the board. Returns 'bot' when a game against a bot was paused.
+function parkCurrent() {
+  S.engineToken++; if (ENG.main) ENG.main.cancelAll();
+  if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll());
+  ON.returnTo = S.mode === 'puzzle' || S.mode === 'lesson' ? S.mode : null;
+  if (!S.line || !['play', 'paused', 'over', 'review', 'idle'].includes(S.mode)) return null;
+  const bot = S.line.source === 'play' && !!S.game && S.line.result === '*' && (S.mode === 'play' || S.mode === 'paused');
+  if (!bot && parkedBotGame()) return null;      // keep a paused bot game rather than, say, a review
+  S.parked = snapshot();                         // a game in play is saved as paused, its clocks stopped
+  return bot ? 'bot' : null;
+}
+function resumeParked() {
+  const d = parkedBotGame(); if (!d) return;
+  if (onlineActive()) { toast('Finish or resign your online game first.'); return; }
+  S.parked = null; ON.returnTo = null;
+  if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  if (location.pathname !== '/') history.replaceState(null, '', '/');
+  if (!restore(d)) { toast('That game could not be restored.'); abandonGame(); return; }
+  drawBoardCanvas();
+  if (S.mode === 'paused') resumeGame();
+  renderQueueBar();
+}
+function backToTrainer() {
+  const t = ON.returnTo; ON.returnTo = null;
+  if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  if (location.pathname !== '/') history.replaceState(null, '', '/');
+  if (t === 'lesson') openCourses(); else openPuzzles();
+}
+// A tab in the background: say so in its title until someone looks
+let titleBase = null;
+function attention(text) { if (!document.hidden) return; if (titleBase == null) titleBase = document.title; document.title = '♞ ' + text; }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && titleBase != null) { document.title = titleBase; titleBase = null; } });
+function renderQueueBar() {
+  const el = $('#queueBar'); if (!el) return;
+  const show = !!(ON.me && (ON.seeking || ON.challenge) && S.mode !== 'online');
+  document.body.classList.toggle('has-qbar', show);
+  if (!show) { el.hidden = true; ON.qbarHtml = ''; return; }
+  // On a phone the start of the sentence drops, so the clock and the timer stay visible
+  const text = ON.seeking ? `<span class="q-long">Looking for a </span>${esc(ON.seeking.tc)} opponent · ${mmss(performance.now() - ON.seeking.since)}` : `<span class="q-long">Waiting for your </span>friend · ${esc(ON.challenge.tc)}`;
+  const html = `<span class="spinner" aria-hidden="true"></span><span class="qbar-text">${text}</span><button class="btn btn-small" data-q="lobby">Lobby</button><button class="btn btn-small" data-q="cancel">Cancel</button>`;
+  if (html !== ON.qbarHtml) { el.innerHTML = html; ON.qbarHtml = html; }
+  el.hidden = false;
 }
 
 /* ---------------- games ---------------- */
@@ -158,16 +225,17 @@ async function findOpponent() {
   const r = await emitOn('seek', { tc: ON.tc });
   ON.busy = false;
   if (r.error) { toast(r.error); if (r.gameId) openGame(r.gameId); renderOnlinePanel(); return; }
-  ON.seeking = { tc: ON.tc, since: performance.now() }; renderAll();
+  ON.seeking = { tc: ON.tc, since: performance.now() }; renderAll(); renderQueueBar();
+  announce(`Looking for a ${ON.tc} opponent.`);
 }
-async function cancelSeek() { await emitOn('seek:cancel'); ON.seeking = null; renderAll(); }
+async function cancelSeek() { await emitOn('seek:cancel'); ON.seeking = null; renderAll(); renderQueueBar(); }
 async function createChallenge(color) {
   const r = await emitOn('challenge:create', { tc: ON.tc, color });
   if (r.error) { toast(r.error); return; }
   if (ON.seeking) { emitOn('seek:cancel'); ON.seeking = null; }
   ON.challenge = { code: r.code, tc: ON.tc, url: `${location.origin}/c/${r.code}` }; renderOnlinePanel();
 }
-async function cancelChallenge() { if (ON.challenge) await emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; renderOnlinePanel(); }
+async function cancelChallenge() { if (ON.challenge) await emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; renderOnlinePanel(); renderQueueBar(); }
 async function loadIncoming(code) {
   const r = await emitOn('challenge:info', { code });
   ON.incoming = r.error ? { code, error: r.error } : { code, from: r.from, tc: r.tc, color: r.color };
@@ -178,7 +246,8 @@ async function acceptIncoming() {
   if (r.error) { ON.incoming.error = r.error; renderOnlinePanel(); return; }
   ON.incoming = null; openGame(r.gameId);
 }
-async function reviewOnlineGame(id) {
+// persp: whose side to show the board from when you didn't play in the game (a profile's owner)
+async function reviewOnlineGame(id, persp) {
   try {
     const d = await api('/games/' + encodeURIComponent(id));
     const c = new Chess(); const L = newLine(START_FEN, { w: d.white.name, b: d.black.name }, { w: d.white.rating ? String(d.white.rating) : 'White', b: d.black.rating ? String(d.black.rating) : 'Black' }, { source: 'online', result: d.result || '*', reason: d.reason || '' });
@@ -186,7 +255,8 @@ async function reviewOnlineGame(id) {
     if (L.moves.length < 1) { toast('That game has no moves to review.'); return; }
     const you = ON.me && d.white.name === ON.me.username ? 'w' : ON.me && d.black.name === ON.me.username ? 'b' : null;
     S.chess = c; S.line = L; S.game = { playerColor: you || 'w', you, tc: d.tc, online: true, clock: { w: 0, b: 0, running: null, last: 0 } };
-    S.orientation = you || 'w'; S.review = null;
+    S.orientation = you || (persp && d.black.name.toLowerCase() === String(persp).toLowerCase() ? 'b' : 'w'); S.review = null;
+    renderCoords(); drawBoardCanvas();
     startReview();
   } catch (e) { toast(e.message); }
 }
@@ -199,6 +269,7 @@ async function submitAuth(form) {
   try {
     const d = await api(ON.authTab === 'login' ? '/login' : '/register', { method: 'POST', body: { username, password, remember } });
     ON.me = d.user; ON.authMsg = '';
+    if (window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
     connectSocket(); loadMyGames();
     if (ON.incoming) loadIncoming(ON.incoming.code);
   } catch (e) { ON.authError = e.message; }
@@ -206,18 +277,23 @@ async function submitAuth(form) {
 }
 async function logout() {
   if (onlineActive()) { toast('Finish or resign your game first.'); return; }
-  leaveOnline();
+  leaveOnline(true);
+  if (window.WP_SYNC) await window.WP_SYNC.flush();    // send progress not saved yet; this browser then forgets it
   try { await api('/logout', { method: 'POST', body: {} }); } catch (e) {}
-  ON.me = null; ON.games = null; ON.game = null; connectSocket(); openOnline();
+  ON.me = null; ON.games = null; ON.game = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null);
+  connectSocket(); openOnline();
 }
 async function deleteAccount(password) {
-  try { await api('/me', { method: 'DELETE', body: { password } }); ON.me = null; ON.games = null; ON.confirmDelete = false; ON.deleteError = ''; connectSocket(); toast('Your account has been deleted.'); openOnline(); }
+  try { await api('/me', { method: 'DELETE', body: { password } }); leaveOnline(true); ON.me = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null); ON.games = null; ON.confirmDelete = false; ON.deleteError = ''; connectSocket(); toast('Your account has been deleted.'); openOnline(); }
   catch (e) { ON.deleteError = e.message; renderOnlinePanel(); }
 }
 
 /* ---------------- rendering ---------------- */
+// How many other players are waiting at each clock right now (the server's count includes your own seek)
+function othersWaiting(tc) { const n = (ON.stats && ON.stats.seeking && ON.stats.seeking[tc]) || 0; return Math.max(0, n - (ON.seeking && ON.seeking.tc === tc ? 1 : 0)); }
 function tcGridHTML() {
-  return `<div class="tc-grid" role="group" aria-label="Time control">${ONLINE_TCS.map(t => `<button class="tc-btn" data-tc="${t.id}" aria-pressed="${t.id === ON.tc}"><b>${t.id}</b><small>${t.kind}</small></button>`).join('')}</div>`;
+  return `<div class="tc-grid" role="group" aria-label="Time control">${ONLINE_TCS.map(t => { const n = othersWaiting(t.id);
+    return `<button class="tc-btn" data-tc="${t.id}" aria-pressed="${t.id === ON.tc}"><b>${t.id}</b><small>${t.kind}</small>${n ? `<i class="tc-wait">${n} waiting</i>` : ''}</button>`; }).join('')}</div>`;
 }
 function statsLine() {
   const s = ON.stats; if (!s) return '';
@@ -265,14 +341,18 @@ function lobbyHTML() {
     action = ON.incoming.error ? `<div class="offer"><span>${esc(ON.incoming.error)}</span><button class="btn btn-small" data-act="dismiss-incoming">OK</button></div>`
       : `<div class="offer"><b>${esc(ON.incoming.from)} challenges you to a ${esc(ON.incoming.tc)} game${ON.incoming.color === 'r' ? '' : `, and plays ${ON.incoming.color === 'w' ? 'White' : 'Black'}`}.</b><span class="fine">Friend games don't change your rating.</span><div class="actions"><button class="btn btn-brass" data-act="accept-incoming">Accept</button><button class="btn" data-act="dismiss-incoming">Decline</button></div></div>`;
   } else if (ON.seeking) {
-    const waited = performance.now() - ON.seeking.since; const range = Math.min(800, 100 + Math.floor(waited / 5000) * 50);
-    action = `<div class="seek-box" aria-live="polite"><b><span class="spinner"></span>Looking for an opponent</b><span class="fine">${esc(ON.seeking.tc)} · rated · waiting ${mmss(waited)} · rating range ±${range}</span>
-      ${waited > 30000 ? `<span class="fine">Nobody around at this time control right now. Keep waiting, try another clock, or play Stockfish meanwhile.</span>` : ''}
-      <div class="actions"><button class="btn" data-act="cancel-seek">Cancel</button>${waited > 30000 ? '<button class="btn" data-act="play-sf">Play Stockfish instead</button>' : ''}</div></div>`;
+    const tc = ON.seeking.tc; const waited = performance.now() - ON.seeking.since; const range = Math.min(800, 100 + Math.floor(waited / 5000) * 50);
+    const others = ONLINE_TCS.filter(t => t.id !== tc && othersWaiting(t.id) > 0);
+    const alone = othersWaiting(tc) === 0;
+    let hint = '';
+    if (alone && waited > 15000 && others.length) hint = `<div class="wait-alt"><span class="fine">Nobody else is looking for a ${esc(tc)} game right now. Players are waiting at:</span><div class="actions">${others.map(t => `<button class="btn btn-small" data-switch="${t.id}">${t.id} · ${othersWaiting(t.id)} waiting</button>`).join('')}</div></div>`;
+    else if (alone && waited > 30000) hint = '<span class="fine">Nobody else is looking for a game right now. At quiet times it can take a while.</span>';
+    action = `<div class="seek-box"><b><span class="spinner"></span>Looking for an opponent</b><span class="fine">${esc(tc)} · rated · waiting ${mmss(waited)} · rating range ±${range}</span>
+      ${hint}${waitHTML()}<div class="actions"><button class="btn" data-act="cancel-seek">Cancel</button></div></div>`;
   } else if (ON.challenge) {
     action = `<div class="seek-box"><b>Challenge link ready</b><span class="fine">Send this link to a friend. The game starts as soon as they open it. Friend games are not rated.</span>
       <div class="link-row"><input class="input" id="chalUrl" readonly value="${esc(ON.challenge.url)}"><button class="btn" data-act="copy-link">Copy</button></div>
-      <span class="fine"><span class="spinner"></span>Waiting for your friend · ${esc(ON.challenge.tc)}</span><div class="actions"><button class="btn" data-act="cancel-challenge">Cancel</button></div></div>`;
+      <span class="fine"><span class="spinner"></span>Waiting for your friend · ${esc(ON.challenge.tc)}</span>${waitHTML()}<div class="actions"><button class="btn" data-act="cancel-challenge">Cancel</button></div></div>`;
   } else {
     action = `<div class="actions"><button class="btn btn-brass" data-act="seek" ${ON.busy || !ON.connected ? 'disabled' : ''}>Find an opponent</button><button class="btn" data-act="challenge" ${!ON.connected ? 'disabled' : ''}>Challenge a friend</button></div>`;
   }
@@ -281,13 +361,15 @@ function lobbyHTML() {
     return `<button class="game-row" data-review="${esc(gm.id)}"><span class="res ${res}">${res === 'win' ? 'W' : res === 'loss' ? 'L' : '½'}</span><span><span>vs ${esc(gm.opponent)}</span><br><span class="meta">${esc(gm.tc)} · ${gm.rated ? 'rated' : 'friend game'} · ${esc(gm.reason || '')}</span></span><span class="d ${gm.diff > 0 ? 'up' : gm.diff < 0 ? 'down' : ''}">${gm.diff != null ? (gm.diff > 0 ? '+' : gm.diff < 0 ? MINUS : '±') + Math.abs(gm.diff) : ''}</span></button>`;
   }).join('')}</div>` : '<p class="fine">Your finished games will appear here. Click one to review it.</p>') : '';
   const del = ON.confirmDelete ? `<form class="form" id="delForm"><label>Confirm with your password<input class="input" name="password" type="password" autocomplete="current-password" required></label>${ON.deleteError ? `<p class="err">${esc(ON.deleteError)}</p>` : ''}<div class="actions"><button class="btn armed" type="submit">Delete my account for good</button><button class="btn" type="button" data-act="cancel-delete">Keep my account</button></div></form>` : '';
-  return `<div class="who-row"><h2>Play online</h2><span class="user-chip">${esc(me.username)}</span></div>
+  const pk = parkedBotGame();
+  const paused = pk && !ON.seeking && !ON.challenge ? `<div class="offer"><b>Your game against ${esc(parkedBotName(pk))} is paused.</b><span class="fine">The clocks are stopped where you left off.</span><div class="actions"><button class="btn" data-act="resume-bot">Resume it</button></div></div>` : '';
+  return `<div class="who-row"><h2>Play online</h2><button class="user-chip pl-link" data-open-player="${esc(me.username)}" title="Your profile">${esc(me.username)}</button></div>
     <div class="ratings-row">${box('bullet', 'Bullet')}${box('blitz', 'Blitz')}${box('rapid', 'Rapid')}${box('classical', 'Classical')}</div>
-    ${!ON.connected ? '<p class="err">Not connected to the server. Reconnecting…</p>' : ''}
+    ${!ON.connected ? '<p class="err">Not connected to the server. Reconnecting…</p>' : ''}${paused}
     <div><span class="field-label">Clock · your rating ${esc(myRating(ON.tc) || '')}</span>${tcGridHTML()}</div>
     ${action}${statsLine()}
-    <div><span class="field-label">Your recent games</span>${games}</div>
-    <div class="account-row"><button class="back-link" data-act="logout">Log out</button><button class="danger-link" data-act="delete">Delete account</button></div>${del}`;
+    <div><div class="field-row"><span class="field-label">Your recent games</span>${ON.games && ON.games.length ? `<button class="back-link" data-open-player="${esc(me.username)}">All games and rating graph →</button>` : ''}</div>${games}</div>
+    <div class="account-row"><button class="back-link" data-open-player="${esc(me.username)}">Your profile</button><button class="back-link" data-open-board>Leaderboard</button><button class="back-link" data-act="logout">Log out</button><button class="danger-link" data-act="delete">Delete account</button></div>${del}`;
 }
 function gameHTML() {
   const g = ON.game; const L = S.line; const you = g.you; const active = g.status === 'active';
@@ -313,10 +395,13 @@ function gameHTML() {
     if (you) {
       if (g.rematch && g.rematch !== you) body += `<div class="offer"><b>${esc(oppName())} wants a rematch.</b><div class="actions"><button class="btn btn-brass" data-act="rematch">Accept rematch</button><button class="btn" data-act="rematch-decline">Decline</button></div></div>`;
       body += `<div class="actions">${!(g.rematch && g.rematch !== you) ? `<button class="btn" data-act="rematch" ${g.rematch === you ? 'disabled' : ''}>${g.rematch === you ? 'Rematch offered' : 'Rematch'}</button>` : ''}<button class="btn btn-brass" data-act="new-opponent">New opponent</button>${L.moves.length ? '<button class="btn" data-act="review-current">Review game</button>' : ''}</div>`;
+      const pk = parkedBotGame();
+      if (pk || ON.returnTo) body += `<div class="actions">${pk ? `<button class="btn" data-act="resume-bot">Resume your game against ${esc(parkedBotName(pk))}</button>` : `<button class="btn" data-act="back-trainer">Back to ${ON.returnTo === 'lesson' ? 'the openings' : 'puzzles'}</button>`}</div>`;
     }
     body += `<button class="back-link" data-act="lobby">← Back to the lobby</button>`;
   }
-  const head = `${esc(L.names.w)} vs ${esc(L.names.b)}`;
+  const pname = (n) => `<button class="pl-link" data-open-player="${esc(n)}">${esc(n)}</button>`;
+  const head = `${pname(L.names.w)} vs ${pname(L.names.b)}`;
   return `<div><h2>${active ? 'Live game' : 'Game over'}</h2><p class="card-sub" style="margin:4px 0 0">${head} · ${esc(g.tc)} · ${g.rated ? 'rated' : 'friend game'}</p></div>${body}`;
 }
 function onlineBanner() {
@@ -349,6 +434,8 @@ function wireOnline() {
   $('#btnOnline').hidden = false;
   $('#btnOnline').addEventListener('click', (e) => {
     if (S.mode === 'online' && ON.game && ON.game.status === 'active') return;
+    // A bot game is paused (resume it from the lobby) when you are in the queue, or when it already was paused
+    if ((S.mode === 'play' && (ON.seeking || ON.challenge)) || S.mode === 'paused') { parkCurrent(); trainerStop(); openOnline(); return; }
     if (S.mode === 'play' && S.line && S.line.moves.length) { armOrRun(e.currentTarget, 'Leave this game?', () => { abandonGame(); openOnline(); }); return; }
     if (S.mode === 'review' && S.review) { S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
     trainerStop(); openOnline();
@@ -371,6 +458,7 @@ function wireOnline() {
     if (b.dataset.auth) { ON.authTab = b.dataset.auth; ON.authError = ''; renderOnlinePanel(); return; }
     if (b.dataset.tc) { ON.tc = b.dataset.tc; renderAll(); return; }
     if (b.dataset.review) { reviewOnlineGame(b.dataset.review); return; }
+    if (b.dataset.switch) { ON.tc = b.dataset.switch; findOpponent(); return; }
     const g = ON.game; const act = b.dataset.act;
     const send = async (ev, d) => { const r = await emitOn(ev, d); if (r.error) toast(r.error); return r; };
     switch (act) {
@@ -381,7 +469,10 @@ function wireOnline() {
       case 'copy-link': { const inp = $('#chalUrl'); try { await navigator.clipboard.writeText(inp.value); toast('Link copied.'); } catch (err) { inp.select(); } break; }
       case 'accept-incoming': acceptIncoming(); break;
       case 'dismiss-incoming': ON.incoming = null; history.replaceState(null, '', '/'); renderOnlinePanel(); break;
-      case 'play-sf': await cancelSeek(); abandonGame(); break;
+      case 'wait-bot': if (parkedBotGame()) resumeParked(); else { abandonGame(); toast('Pick a bot and press Play. You stay in the queue.'); } break;
+      case 'wait-puzzles': trainerStop(); openPuzzles(); break;
+      case 'resume-bot': resumeParked(); break;
+      case 'back-trainer': backToTrainer(); break;
       case 'logout': logout(); break;
       case 'delete': ON.confirmDelete = true; ON.deleteError = ''; renderOnlinePanel(); break;
       case 'cancel-delete': ON.confirmDelete = false; renderOnlinePanel(); break;
@@ -398,7 +489,12 @@ function wireOnline() {
       case 'lobby': openOnline(); break;
     }
   });
-  setInterval(() => { if (S.mode === 'online' && ON.seeking && !ON.game) renderOnlinePanel(); }, 1000);
+  setInterval(() => { if (S.mode === 'online' && ON.seeking && !ON.game) renderOnlinePanel(); renderQueueBar(); }, 1000);
+  $('#queueBar').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-q]'); if (!b) return;
+    if (b.dataset.q === 'lobby') $('#btnOnline').click();
+    else if (ON.seeking) cancelSeek(); else cancelChallenge();
+  });
 }
 async function bootOnline() {
   if (typeof io === 'undefined') return;
@@ -414,7 +510,7 @@ window.WP_ONLINE = {
   canMove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() === ON.game.you),
   canPremove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() !== ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
-  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(),
+  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: renderQueueBar,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
   login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
   logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },

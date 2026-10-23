@@ -1,7 +1,7 @@
 /* =====================================================================
    You: an estimated Elo from your games against Stockfish and the accuracy
-   of your reviewed games (kept in this browser only), plus your account
-   and online ratings when the Woodpusher server is there.
+   of your reviewed games (kept in this browser, and in your account when
+   you are logged in, see sync.js), plus your online ratings.
    ===================================================================== */
 const HIST_KEY = 'woodpusher.history.v1';
 const HIST_MAX = 120;
@@ -9,7 +9,7 @@ const HIST = (() => {
   try { const h = JSON.parse(localStorage.getItem(HIST_KEY)); if (h && Array.isArray(h.games)) return h; } catch (e) {}
   return { v: 1, games: [] };            // newest first
 })();
-function saveHist() { if (HIST.games.length > HIST_MAX) HIST.games.length = HIST_MAX; try { localStorage.setItem(HIST_KEY, JSON.stringify(HIST)); } catch (e) {} }
+function saveHist() { if (HIST.games.length > HIST_MAX) HIST.games.length = HIST_MAX; try { localStorage.setItem(HIST_KEY, JSON.stringify(HIST)); } catch (e) {} if (typeof progressChanged === 'function') progressChanged(); }
 const histId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // A finished game against Stockfish: who won, at what strength.
@@ -123,12 +123,13 @@ function renderUserSection() {
       <p class="fine">A <b>?</b> means the rating is still a guess. It settles after a handful of rated games.</p></div>`;
   }
   let action = '';
-  if (me) action = `<button class="btn btn-small" data-user="logout">Log out</button>`;
+  if (me) action = `<button class="btn btn-small" data-open-player="${esc(me.username)}">Your profile</button><button class="btn btn-small" data-open-board>Leaderboard</button><button class="btn btn-small" data-user="logout">Log out</button>`;
   else if (online && !checking) action = `<button class="btn btn-brass btn-small" data-user="login">Log in or create an account</button>`;
   el.innerHTML = `
     <div class="you"><span class="you-ic" aria-hidden="true">${pieceSVG('wK')}</span><span class="you-text"><span class="you-name">${esc(name)}</span>${sub ? `<span class="you-sub">${esc(sub)}</span>` : ''}</span></div>
     <div class="est"><small>Estimated Elo</small><b>${!est ? '–' : est.above ? ELO_MAX + '+' : '≈' + est.elo}</b><span class="chip">${est ? est.confidence : 'No games yet'}</span></div>
     <p class="fine user-detail">${esc(detail)}${online ? '' : ' Accounts and online ratings live on the Woodpusher website.'}</p>
+    ${online && !checking ? `<p class="fine user-detail">${me ? 'Your puzzle rating, the opening lines you practised and this Elo estimate are saved to your account, so they follow you to other devices.' : 'Log in and your puzzle rating, opening progress and this Elo estimate are saved to your account.'}</p>` : ''}
     ${ratings}
     ${action ? `<div class="user-actions">${action}</div>` : ''}`;
 }

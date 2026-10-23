@@ -807,8 +807,8 @@ function wireSettings() {
 
 /* =====================================================================
    You: an estimated Elo from your games against Stockfish and the accuracy
-   of your reviewed games (kept in this browser only), plus your account
-   and online ratings when the Woodpusher server is there.
+   of your reviewed games (kept in this browser, and in your account when
+   you are logged in, see sync.js), plus your online ratings.
    ===================================================================== */
 const HIST_KEY = 'woodpusher.history.v1';
 const HIST_MAX = 120;
@@ -816,7 +816,7 @@ const HIST = (() => {
   try { const h = JSON.parse(localStorage.getItem(HIST_KEY)); if (h && Array.isArray(h.games)) return h; } catch (e) {}
   return { v: 1, games: [] };            // newest first
 })();
-function saveHist() { if (HIST.games.length > HIST_MAX) HIST.games.length = HIST_MAX; try { localStorage.setItem(HIST_KEY, JSON.stringify(HIST)); } catch (e) {} }
+function saveHist() { if (HIST.games.length > HIST_MAX) HIST.games.length = HIST_MAX; try { localStorage.setItem(HIST_KEY, JSON.stringify(HIST)); } catch (e) {} if (typeof progressChanged === 'function') progressChanged(); }
 const histId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // A finished game against Stockfish: who won, at what strength.
@@ -930,12 +930,13 @@ function renderUserSection() {
       <p class="fine">A <b>?</b> means the rating is still a guess. It settles after a handful of rated games.</p></div>`;
   }
   let action = '';
-  if (me) action = `<button class="btn btn-small" data-user="logout">Log out</button>`;
+  if (me) action = `<button class="btn btn-small" data-open-player="${esc(me.username)}">Your profile</button><button class="btn btn-small" data-open-board>Leaderboard</button><button class="btn btn-small" data-user="logout">Log out</button>`;
   else if (online && !checking) action = `<button class="btn btn-brass btn-small" data-user="login">Log in or create an account</button>`;
   el.innerHTML = `
     <div class="you"><span class="you-ic" aria-hidden="true">${pieceSVG('wK')}</span><span class="you-text"><span class="you-name">${esc(name)}</span>${sub ? `<span class="you-sub">${esc(sub)}</span>` : ''}</span></div>
     <div class="est"><small>Estimated Elo</small><b>${!est ? '–' : est.above ? ELO_MAX + '+' : '≈' + est.elo}</b><span class="chip">${est ? est.confidence : 'No games yet'}</span></div>
     <p class="fine user-detail">${esc(detail)}${online ? '' : ' Accounts and online ratings live on the Woodpusher website.'}</p>
+    ${online && !checking ? `<p class="fine user-detail">${me ? 'Your puzzle rating, the opening lines you practised and this Elo estimate are saved to your account, so they follow you to other devices.' : 'Log in and your puzzle rating, opening progress and this Elo estimate are saved to your account.'}</p>` : ''}
     ${ratings}
     ${action ? `<div class="user-actions">${action}</div>` : ''}`;
 }
@@ -1025,7 +1026,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
-const BOOK_QS = '?v=343823bfd8';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
+const BOOK_QS = '?v=993790f1d3';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -1286,11 +1287,12 @@ function specialMove(i, ctx) {
 }
 
 /* ---------------- words ---------------- */
-// Which colour is "you" in this game, if any (your games against Stockfish and your online games).
+// Which colour is "you" in this game, if any (your games against Stockfish, your online games and games found by your username).
 function youColor() {
   const L = S.line, g = S.game; if (!L) return null;
   if (L.source === 'play' && g) return g.playerColor;
   if (L.source === 'online' && g && g.you) return g.you;
+  if (L.source === 'pgn' && L.you) return L.you;      // a game found by the player's username
   return null;
 }
 function sideWords(c) {
@@ -2139,6 +2141,7 @@ function resultSentence() {
   else if (g && L.source === 'play') who = w === g.playerColor ? 'You win' : `${L.names[w]} wins`;
   else if (L.source === 'online' && g && g.you) who = w === g.you ? 'You win' : `${L.names[w]} wins`;
   else if (L.source === 'online') who = `${L.names[w]} wins`;
+  else if (L.source === 'pgn' && L.you) who = w === L.you ? 'You win' : `${L.names[w]} wins`;
   else who = (w === 'w' ? 'White' : 'Black') + ' wins';
   const how = { checkmate: 'by checkmate', stalemate: 'by stalemate', 'on time': 'on time', resignation: 'by resignation', agreement: 'by agreement', 'insufficient material': 'by insufficient material', 'threefold repetition': 'by threefold repetition', 'the 50-move rule': 'by the 50-move rule', 'timeout vs insufficient material': 'by timeout against insufficient material', abandonment: 'because the opponent left' }[L.reason] || '';
   return `${who}${how ? ' ' + how : ''}.`;
@@ -2215,6 +2218,7 @@ function setMode(m) {
   $('#overActions').querySelector('#btnRematch').hidden = !(S.line && S.line.source === 'play');
   if ((prev === 'review') !== (m === 'review')) layoutBoard();
   disarm();
+  if (window.WP_ONLINE) window.WP_ONLINE.qbar();   // the matchmaking bar shows everywhere but the lobby
 }
 
 /* =====================================================================
@@ -2685,15 +2689,18 @@ function parsePGN(text) {
   else if (headers.Termination) { const t = headers.Termination.toLowerCase(); reason = t.includes('time') ? 'on time' : t.includes('resign') ? 'resignation' : t.includes('agree') ? 'agreement' : t.includes('repetition') ? 'threefold repetition' : ''; }
   return { headers, startFen, fens, moves, result, reason };
 }
-function loadPGNForReview(text) {
+// opts.you: the side of the player whose games were looked up by username, so the board turns to
+// them and the review notes say "you"; opts.reason: how the game ended, when the site told us.
+function loadPGNForReview(text, opts = {}) {
   const p = parsePGN(text); trainerStop();
   const nm = (c) => { const n = p.headers[c === 'w' ? 'White' : 'Black']; return n && n !== '?' ? n : (c === 'w' ? 'White' : 'Black'); };
   const elo = (c) => p.headers[c === 'w' ? 'WhiteElo' : 'BlackElo'];
   S.engineToken++; if (ENG.main) ENG.main.cancelAll();
   S.game = null; S.chess = null;
-  S.line = newLine(p.startFen, { w: nm('w'), b: nm('b') }, { w: elo('w') ? `White · ${elo('w')}` : 'White', b: elo('b') ? `Black · ${elo('b')}` : 'Black' }, { headers: p.headers, result: p.result, reason: p.reason, source: 'pgn' });
+  const you = opts.you === 'w' || opts.you === 'b' ? opts.you : null;
+  S.line = newLine(p.startFen, { w: nm('w'), b: nm('b') }, { w: elo('w') ? `White · ${elo('w')}` : 'White', b: elo('b') ? `Black · ${elo('b')}` : 'Black' }, { headers: p.headers, result: p.result, reason: p.reason || opts.reason || '', source: 'pgn', you });
   S.line.fens = p.fens; S.line.moves = p.moves;
-  S.orientation = 'w'; S.review = null; renderCoords(); drawBoardCanvas();
+  S.orientation = you || 'w'; S.review = null; renderCoords(); drawBoardCanvas();
   startReview();
 }
 function buildPGN() {
@@ -2724,7 +2731,7 @@ function snapshot() {
   const L = S.line, g = S.game;
   return {
     v: 1, settings: S.settings, mode: S.mode, orientation: S.orientation, view: S.view,
-    line: L ? { startFen: L.startFen, sans: L.moves.map(m => m.san), names: L.names, subs: L.subs, headers: L.headers, result: L.result, reason: L.reason, source: L.source } : null,
+    line: L ? { startFen: L.startFen, sans: L.moves.map(m => m.san), names: L.names, subs: L.subs, headers: L.headers, result: L.result, reason: L.reason, source: L.source, you: L.you || null } : null,
     game: g ? { playerColor: g.playerColor, elo: g.elo, opp: g.opp || null, inBook: !!g.inBook, tc: g.tc, histId: g.histId, takebacks: g.takebacks || 0, clock: { w: Math.max(0, remaining('w')), b: Math.max(0, remaining('b')), running: g.clock.running } } : null,
     review: S.review ? { v: 2, key: S.review.key, evals: S.review.evals, best: S.review.best, pv: S.review.pv, alt: S.review.alt } : null,
   };
@@ -2740,7 +2747,7 @@ function restore(d) {
   try {
     const c = new Chess(d.line.startFen); const moves = [], fens = [d.line.startFen];
     for (const san of d.line.sans) { const m = c.move(san); if (!m) return false; m.uci = m.from + m.to + (m.promotion || ''); moves.push(m); fens.push(c.fen()); }
-    S.line = Object.assign(newLine(d.line.startFen, d.line.names, d.line.subs), { headers: d.line.headers || {}, result: d.line.result, reason: d.line.reason, source: d.line.source });
+    S.line = Object.assign(newLine(d.line.startFen, d.line.names, d.line.subs), { headers: d.line.headers || {}, result: d.line.result, reason: d.line.reason, source: d.line.source, you: d.line.you || null });
     S.line.fens = fens; S.line.moves = moves; S.chess = c;
     if (d.game) S.game = { playerColor: d.game.playerColor, elo: d.game.elo || LEVEL_TO_ELO[d.game.level] || ELO_DEFAULT, opp: personaById(d.game.opp) ? d.game.opp : null, inBook: !!d.game.inBook, tc: d.game.tc, histId: d.game.histId, takebacks: d.game.takebacks || 0, clock: { w: d.game.clock.w, b: d.game.clock.b, running: d.game.clock.running, last: performance.now() }, lastEngineScore: null };
     S.orientation = d.orientation || 'w';
@@ -2791,8 +2798,10 @@ function wire() {
     if (S.mode === 'review') { if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
     abandonGame();
   });
-  const openImport = () => { $('#pgnErr').hidden = true; $('#pgnModal').hidden = false; $('#pgnInput').focus(); };
-  $('#btnImport').addEventListener('click', openImport); $('#btnImport2').addEventListener('click', openImport);
+  // The dialog finds games by username (on the Woodpusher site, see importer.js) or takes a pasted PGN
+  const openImport = (tab) => { $('#pgnErr').hidden = true; $('#pgnModal').hidden = false; if (window.WP_IMPORT) window.WP_IMPORT.open(tab); else $('#pgnInput').focus(); };
+  $('#btnImport').addEventListener('click', () => openImport()); $('#btnImport2').addEventListener('click', () => openImport('paste'));
+  $('#btnFindGames').addEventListener('click', () => openImport('user'));
   $('#btnSample').addEventListener('click', () => { if (S.mode === 'play') { toast('Finish or abandon your game first.'); return; } loadPGNForReview(OPERA_PGN); });
   $('#pgnSample').addEventListener('click', () => { $('#pgnInput').value = OPERA_PGN; $('#pgnErr').hidden = true; });
   $('#pgnCancel').addEventListener('click', () => { $('#pgnModal').hidden = true; });
@@ -2858,7 +2867,7 @@ const PROG_KEY = 'woodpusher.progress.v1';
 const PROG = (() => { try { return JSON.parse(localStorage.getItem(PROG_KEY)) || {}; } catch (e) { return {}; } })();
 PROG.lines = PROG.lines || {};
 PROG.pz = Object.assign({ rating: 1200, solved: 0, tried: 0, streak: 0, best: 0, seen: {} }, PROG.pz || {});
-function saveProg() { try { localStorage.setItem(PROG_KEY, JSON.stringify(PROG)); } catch (e) {} }
+function saveProg() { try { localStorage.setItem(PROG_KEY, JSON.stringify(PROG)); } catch (e) {} if (typeof progressChanged === 'function') progressChanged(); }
 
 const T = { kind: null, timers: [], hint: 0, wrong: null, right: null };
 function tLater(fn, ms) { const id = setTimeout(() => { T.timers = T.timers.filter(x => x !== id); fn(); }, ms); T.timers.push(id); }
@@ -3199,8 +3208,14 @@ function connectSocket() {
   s.on('connect', () => { ON.connected = true; if (ON.game && ON.game.status === 'active') openGame(ON.game.id, true); else if (ON.seeking) emitOn('seek', { tc: ON.seeking.tc }); renderOnlineIfShown(); });
   s.on('disconnect', () => { ON.connected = false; renderOnlineIfShown(); });
   s.on('lobby:stats', (d) => { ON.stats = d; if (S.mode === 'online' && !ON.game) renderOnlinePanel(); });
-  s.on('match', (d) => { ON.seeking = null; ON.challenge = null; Snd.bell(659.25, .1); openGame(d.gameId); });
-  s.on('game:current', (d) => { if (!ON.game || ON.game.id !== d.id) { ON.current = d.id; if (S.mode === 'online' || location.pathname === '/') { openOnline(true); openGame(d.id); } } });
+  s.on('match', (d) => {
+    ON.seeking = null; ON.challenge = null; Snd.bell(659.25, .1);
+    document.querySelectorAll('.modal-back').forEach(m => { m.hidden = true; });
+    if (S.mode !== 'online') { const k = parkCurrent(); toast(k === 'bot' ? 'Opponent found! Your bot game is paused. You can resume it after this game.' : 'Opponent found! Your game is starting.'); }
+    attention('Opponent found');
+    openGame(d.gameId);
+  });
+  s.on('game:current', (d) => { if (!ON.game || ON.game.id !== d.id) { ON.current = d.id; if (S.mode === 'online' || location.pathname === '/') { if (S.mode !== 'online') parkCurrent(); openOnline(true); openGame(d.id); } } });
   s.on('game:move', onRemoteMove);
   s.on('game:end', onGameEnd);
   s.on('game:offer', (d) => {
@@ -3226,8 +3241,12 @@ function renderOnlineIfShown() { if (S.mode === 'online') renderAll(); }
 const oppName = () => { const g = ON.game; if (!g || !S.line) return 'Your opponent'; return S.line.names[g.you === 'w' ? 'b' : 'w']; };
 
 async function loadMe() {
-  try { const d = await api('/me'); ON.me = d.user; } catch (e) { ON.me = null; }
+  // A failed request (offline) keeps whoever was logged in; only the server's answer changes it
+  let known = false;
+  try { const d = await api('/me'); ON.me = d.user; known = true; } catch (e) { ON.me = ON.me || null; }
   ON.loaded = true; renderUserSection();
+  if (known && window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
+  if (window.WP_PLAYERS) window.WP_PLAYERS.refresh();
 }
 async function loadMyGames() {
   if (!ON.me) { ON.games = null; return; }
@@ -3249,11 +3268,68 @@ function openOnline(keepGame = false) {
   } else setMode('online');
   loadMyGames();
 }
-function leaveOnline() {
-  if (ON.seeking) { emitOn('seek:cancel'); ON.seeking = null; }
-  if (ON.challenge) { emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; }
+// Leaving the lobby keeps your place in the queue (and a challenge link open): you can play a bot or
+// solve puzzles while you wait. cancel: also give those up, for logging out.
+function leaveOnline(cancel = false) {
+  if (cancel && ON.seeking) { emitOn('seek:cancel'); ON.seeking = null; }
+  if (cancel && ON.challenge) { emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; }
   if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
   if (location.pathname !== '/') history.replaceState(null, '', '/');
+}
+
+/* ---------------- waiting for an opponent ---------------- */
+// While you wait you can play a bot or solve puzzles and keep your place in the queue. A bar at the
+// bottom of the page shows the search. When the opponent is found the online game takes the board;
+// a bot game that was still going is paused, and can be resumed after the online game.
+const parkedBotGame = () => { const d = S.parked; return d && d.v === 1 && d.line && d.game && d.line.source === 'play' && d.line.result === '*' ? d : null; };
+const parkedBotName = (d) => d.line.names[d.game.playerColor === 'w' ? 'b' : 'w'] || 'Stockfish';
+function waitHTML() {
+  const pk = parkedBotGame();
+  return `<div class="wait-do"><span class="field-label">While you wait</span><div class="actions"><button class="btn" data-act="wait-bot">${pk ? 'Resume your bot game' : 'Play a bot'}</button><button class="btn" data-act="wait-puzzles">Solve puzzles</button></div>
+    <span class="fine">You keep your place. When ${ON.challenge ? 'your friend joins' : 'an opponent is found'}, the game starts here straight away and a bot game is paused.</span></div>`;
+}
+// Called when an online game is about to take over the board. Returns 'bot' when a game against a bot was paused.
+function parkCurrent() {
+  S.engineToken++; if (ENG.main) ENG.main.cancelAll();
+  if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll());
+  ON.returnTo = S.mode === 'puzzle' || S.mode === 'lesson' ? S.mode : null;
+  if (!S.line || !['play', 'paused', 'over', 'review', 'idle'].includes(S.mode)) return null;
+  const bot = S.line.source === 'play' && !!S.game && S.line.result === '*' && (S.mode === 'play' || S.mode === 'paused');
+  if (!bot && parkedBotGame()) return null;      // keep a paused bot game rather than, say, a review
+  S.parked = snapshot();                         // a game in play is saved as paused, its clocks stopped
+  return bot ? 'bot' : null;
+}
+function resumeParked() {
+  const d = parkedBotGame(); if (!d) return;
+  if (onlineActive()) { toast('Finish or resign your online game first.'); return; }
+  S.parked = null; ON.returnTo = null;
+  if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  if (location.pathname !== '/') history.replaceState(null, '', '/');
+  if (!restore(d)) { toast('That game could not be restored.'); abandonGame(); return; }
+  drawBoardCanvas();
+  if (S.mode === 'paused') resumeGame();
+  renderQueueBar();
+}
+function backToTrainer() {
+  const t = ON.returnTo; ON.returnTo = null;
+  if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  if (location.pathname !== '/') history.replaceState(null, '', '/');
+  if (t === 'lesson') openCourses(); else openPuzzles();
+}
+// A tab in the background: say so in its title until someone looks
+let titleBase = null;
+function attention(text) { if (!document.hidden) return; if (titleBase == null) titleBase = document.title; document.title = '♞ ' + text; }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && titleBase != null) { document.title = titleBase; titleBase = null; } });
+function renderQueueBar() {
+  const el = $('#queueBar'); if (!el) return;
+  const show = !!(ON.me && (ON.seeking || ON.challenge) && S.mode !== 'online');
+  document.body.classList.toggle('has-qbar', show);
+  if (!show) { el.hidden = true; ON.qbarHtml = ''; return; }
+  // On a phone the start of the sentence drops, so the clock and the timer stay visible
+  const text = ON.seeking ? `<span class="q-long">Looking for a </span>${esc(ON.seeking.tc)} opponent · ${mmss(performance.now() - ON.seeking.since)}` : `<span class="q-long">Waiting for your </span>friend · ${esc(ON.challenge.tc)}`;
+  const html = `<span class="spinner" aria-hidden="true"></span><span class="qbar-text">${text}</span><button class="btn btn-small" data-q="lobby">Lobby</button><button class="btn btn-small" data-q="cancel">Cancel</button>`;
+  if (html !== ON.qbarHtml) { el.innerHTML = html; ON.qbarHtml = html; }
+  el.hidden = false;
 }
 
 /* ---------------- games ---------------- */
@@ -3326,16 +3402,17 @@ async function findOpponent() {
   const r = await emitOn('seek', { tc: ON.tc });
   ON.busy = false;
   if (r.error) { toast(r.error); if (r.gameId) openGame(r.gameId); renderOnlinePanel(); return; }
-  ON.seeking = { tc: ON.tc, since: performance.now() }; renderAll();
+  ON.seeking = { tc: ON.tc, since: performance.now() }; renderAll(); renderQueueBar();
+  announce(`Looking for a ${ON.tc} opponent.`);
 }
-async function cancelSeek() { await emitOn('seek:cancel'); ON.seeking = null; renderAll(); }
+async function cancelSeek() { await emitOn('seek:cancel'); ON.seeking = null; renderAll(); renderQueueBar(); }
 async function createChallenge(color) {
   const r = await emitOn('challenge:create', { tc: ON.tc, color });
   if (r.error) { toast(r.error); return; }
   if (ON.seeking) { emitOn('seek:cancel'); ON.seeking = null; }
   ON.challenge = { code: r.code, tc: ON.tc, url: `${location.origin}/c/${r.code}` }; renderOnlinePanel();
 }
-async function cancelChallenge() { if (ON.challenge) await emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; renderOnlinePanel(); }
+async function cancelChallenge() { if (ON.challenge) await emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; renderOnlinePanel(); renderQueueBar(); }
 async function loadIncoming(code) {
   const r = await emitOn('challenge:info', { code });
   ON.incoming = r.error ? { code, error: r.error } : { code, from: r.from, tc: r.tc, color: r.color };
@@ -3346,7 +3423,8 @@ async function acceptIncoming() {
   if (r.error) { ON.incoming.error = r.error; renderOnlinePanel(); return; }
   ON.incoming = null; openGame(r.gameId);
 }
-async function reviewOnlineGame(id) {
+// persp: whose side to show the board from when you didn't play in the game (a profile's owner)
+async function reviewOnlineGame(id, persp) {
   try {
     const d = await api('/games/' + encodeURIComponent(id));
     const c = new Chess(); const L = newLine(START_FEN, { w: d.white.name, b: d.black.name }, { w: d.white.rating ? String(d.white.rating) : 'White', b: d.black.rating ? String(d.black.rating) : 'Black' }, { source: 'online', result: d.result || '*', reason: d.reason || '' });
@@ -3354,7 +3432,8 @@ async function reviewOnlineGame(id) {
     if (L.moves.length < 1) { toast('That game has no moves to review.'); return; }
     const you = ON.me && d.white.name === ON.me.username ? 'w' : ON.me && d.black.name === ON.me.username ? 'b' : null;
     S.chess = c; S.line = L; S.game = { playerColor: you || 'w', you, tc: d.tc, online: true, clock: { w: 0, b: 0, running: null, last: 0 } };
-    S.orientation = you || 'w'; S.review = null;
+    S.orientation = you || (persp && d.black.name.toLowerCase() === String(persp).toLowerCase() ? 'b' : 'w'); S.review = null;
+    renderCoords(); drawBoardCanvas();
     startReview();
   } catch (e) { toast(e.message); }
 }
@@ -3367,6 +3446,7 @@ async function submitAuth(form) {
   try {
     const d = await api(ON.authTab === 'login' ? '/login' : '/register', { method: 'POST', body: { username, password, remember } });
     ON.me = d.user; ON.authMsg = '';
+    if (window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
     connectSocket(); loadMyGames();
     if (ON.incoming) loadIncoming(ON.incoming.code);
   } catch (e) { ON.authError = e.message; }
@@ -3374,18 +3454,23 @@ async function submitAuth(form) {
 }
 async function logout() {
   if (onlineActive()) { toast('Finish or resign your game first.'); return; }
-  leaveOnline();
+  leaveOnline(true);
+  if (window.WP_SYNC) await window.WP_SYNC.flush();    // send progress not saved yet; this browser then forgets it
   try { await api('/logout', { method: 'POST', body: {} }); } catch (e) {}
-  ON.me = null; ON.games = null; ON.game = null; connectSocket(); openOnline();
+  ON.me = null; ON.games = null; ON.game = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null);
+  connectSocket(); openOnline();
 }
 async function deleteAccount(password) {
-  try { await api('/me', { method: 'DELETE', body: { password } }); ON.me = null; ON.games = null; ON.confirmDelete = false; ON.deleteError = ''; connectSocket(); toast('Your account has been deleted.'); openOnline(); }
+  try { await api('/me', { method: 'DELETE', body: { password } }); leaveOnline(true); ON.me = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null); ON.games = null; ON.confirmDelete = false; ON.deleteError = ''; connectSocket(); toast('Your account has been deleted.'); openOnline(); }
   catch (e) { ON.deleteError = e.message; renderOnlinePanel(); }
 }
 
 /* ---------------- rendering ---------------- */
+// How many other players are waiting at each clock right now (the server's count includes your own seek)
+function othersWaiting(tc) { const n = (ON.stats && ON.stats.seeking && ON.stats.seeking[tc]) || 0; return Math.max(0, n - (ON.seeking && ON.seeking.tc === tc ? 1 : 0)); }
 function tcGridHTML() {
-  return `<div class="tc-grid" role="group" aria-label="Time control">${ONLINE_TCS.map(t => `<button class="tc-btn" data-tc="${t.id}" aria-pressed="${t.id === ON.tc}"><b>${t.id}</b><small>${t.kind}</small></button>`).join('')}</div>`;
+  return `<div class="tc-grid" role="group" aria-label="Time control">${ONLINE_TCS.map(t => { const n = othersWaiting(t.id);
+    return `<button class="tc-btn" data-tc="${t.id}" aria-pressed="${t.id === ON.tc}"><b>${t.id}</b><small>${t.kind}</small>${n ? `<i class="tc-wait">${n} waiting</i>` : ''}</button>`; }).join('')}</div>`;
 }
 function statsLine() {
   const s = ON.stats; if (!s) return '';
@@ -3433,14 +3518,18 @@ function lobbyHTML() {
     action = ON.incoming.error ? `<div class="offer"><span>${esc(ON.incoming.error)}</span><button class="btn btn-small" data-act="dismiss-incoming">OK</button></div>`
       : `<div class="offer"><b>${esc(ON.incoming.from)} challenges you to a ${esc(ON.incoming.tc)} game${ON.incoming.color === 'r' ? '' : `, and plays ${ON.incoming.color === 'w' ? 'White' : 'Black'}`}.</b><span class="fine">Friend games don't change your rating.</span><div class="actions"><button class="btn btn-brass" data-act="accept-incoming">Accept</button><button class="btn" data-act="dismiss-incoming">Decline</button></div></div>`;
   } else if (ON.seeking) {
-    const waited = performance.now() - ON.seeking.since; const range = Math.min(800, 100 + Math.floor(waited / 5000) * 50);
-    action = `<div class="seek-box" aria-live="polite"><b><span class="spinner"></span>Looking for an opponent</b><span class="fine">${esc(ON.seeking.tc)} · rated · waiting ${mmss(waited)} · rating range ±${range}</span>
-      ${waited > 30000 ? `<span class="fine">Nobody around at this time control right now. Keep waiting, try another clock, or play Stockfish meanwhile.</span>` : ''}
-      <div class="actions"><button class="btn" data-act="cancel-seek">Cancel</button>${waited > 30000 ? '<button class="btn" data-act="play-sf">Play Stockfish instead</button>' : ''}</div></div>`;
+    const tc = ON.seeking.tc; const waited = performance.now() - ON.seeking.since; const range = Math.min(800, 100 + Math.floor(waited / 5000) * 50);
+    const others = ONLINE_TCS.filter(t => t.id !== tc && othersWaiting(t.id) > 0);
+    const alone = othersWaiting(tc) === 0;
+    let hint = '';
+    if (alone && waited > 15000 && others.length) hint = `<div class="wait-alt"><span class="fine">Nobody else is looking for a ${esc(tc)} game right now. Players are waiting at:</span><div class="actions">${others.map(t => `<button class="btn btn-small" data-switch="${t.id}">${t.id} · ${othersWaiting(t.id)} waiting</button>`).join('')}</div></div>`;
+    else if (alone && waited > 30000) hint = '<span class="fine">Nobody else is looking for a game right now. At quiet times it can take a while.</span>';
+    action = `<div class="seek-box"><b><span class="spinner"></span>Looking for an opponent</b><span class="fine">${esc(tc)} · rated · waiting ${mmss(waited)} · rating range ±${range}</span>
+      ${hint}${waitHTML()}<div class="actions"><button class="btn" data-act="cancel-seek">Cancel</button></div></div>`;
   } else if (ON.challenge) {
     action = `<div class="seek-box"><b>Challenge link ready</b><span class="fine">Send this link to a friend. The game starts as soon as they open it. Friend games are not rated.</span>
       <div class="link-row"><input class="input" id="chalUrl" readonly value="${esc(ON.challenge.url)}"><button class="btn" data-act="copy-link">Copy</button></div>
-      <span class="fine"><span class="spinner"></span>Waiting for your friend · ${esc(ON.challenge.tc)}</span><div class="actions"><button class="btn" data-act="cancel-challenge">Cancel</button></div></div>`;
+      <span class="fine"><span class="spinner"></span>Waiting for your friend · ${esc(ON.challenge.tc)}</span>${waitHTML()}<div class="actions"><button class="btn" data-act="cancel-challenge">Cancel</button></div></div>`;
   } else {
     action = `<div class="actions"><button class="btn btn-brass" data-act="seek" ${ON.busy || !ON.connected ? 'disabled' : ''}>Find an opponent</button><button class="btn" data-act="challenge" ${!ON.connected ? 'disabled' : ''}>Challenge a friend</button></div>`;
   }
@@ -3449,13 +3538,15 @@ function lobbyHTML() {
     return `<button class="game-row" data-review="${esc(gm.id)}"><span class="res ${res}">${res === 'win' ? 'W' : res === 'loss' ? 'L' : '½'}</span><span><span>vs ${esc(gm.opponent)}</span><br><span class="meta">${esc(gm.tc)} · ${gm.rated ? 'rated' : 'friend game'} · ${esc(gm.reason || '')}</span></span><span class="d ${gm.diff > 0 ? 'up' : gm.diff < 0 ? 'down' : ''}">${gm.diff != null ? (gm.diff > 0 ? '+' : gm.diff < 0 ? MINUS : '±') + Math.abs(gm.diff) : ''}</span></button>`;
   }).join('')}</div>` : '<p class="fine">Your finished games will appear here. Click one to review it.</p>') : '';
   const del = ON.confirmDelete ? `<form class="form" id="delForm"><label>Confirm with your password<input class="input" name="password" type="password" autocomplete="current-password" required></label>${ON.deleteError ? `<p class="err">${esc(ON.deleteError)}</p>` : ''}<div class="actions"><button class="btn armed" type="submit">Delete my account for good</button><button class="btn" type="button" data-act="cancel-delete">Keep my account</button></div></form>` : '';
-  return `<div class="who-row"><h2>Play online</h2><span class="user-chip">${esc(me.username)}</span></div>
+  const pk = parkedBotGame();
+  const paused = pk && !ON.seeking && !ON.challenge ? `<div class="offer"><b>Your game against ${esc(parkedBotName(pk))} is paused.</b><span class="fine">The clocks are stopped where you left off.</span><div class="actions"><button class="btn" data-act="resume-bot">Resume it</button></div></div>` : '';
+  return `<div class="who-row"><h2>Play online</h2><button class="user-chip pl-link" data-open-player="${esc(me.username)}" title="Your profile">${esc(me.username)}</button></div>
     <div class="ratings-row">${box('bullet', 'Bullet')}${box('blitz', 'Blitz')}${box('rapid', 'Rapid')}${box('classical', 'Classical')}</div>
-    ${!ON.connected ? '<p class="err">Not connected to the server. Reconnecting…</p>' : ''}
+    ${!ON.connected ? '<p class="err">Not connected to the server. Reconnecting…</p>' : ''}${paused}
     <div><span class="field-label">Clock · your rating ${esc(myRating(ON.tc) || '')}</span>${tcGridHTML()}</div>
     ${action}${statsLine()}
-    <div><span class="field-label">Your recent games</span>${games}</div>
-    <div class="account-row"><button class="back-link" data-act="logout">Log out</button><button class="danger-link" data-act="delete">Delete account</button></div>${del}`;
+    <div><div class="field-row"><span class="field-label">Your recent games</span>${ON.games && ON.games.length ? `<button class="back-link" data-open-player="${esc(me.username)}">All games and rating graph →</button>` : ''}</div>${games}</div>
+    <div class="account-row"><button class="back-link" data-open-player="${esc(me.username)}">Your profile</button><button class="back-link" data-open-board>Leaderboard</button><button class="back-link" data-act="logout">Log out</button><button class="danger-link" data-act="delete">Delete account</button></div>${del}`;
 }
 function gameHTML() {
   const g = ON.game; const L = S.line; const you = g.you; const active = g.status === 'active';
@@ -3481,10 +3572,13 @@ function gameHTML() {
     if (you) {
       if (g.rematch && g.rematch !== you) body += `<div class="offer"><b>${esc(oppName())} wants a rematch.</b><div class="actions"><button class="btn btn-brass" data-act="rematch">Accept rematch</button><button class="btn" data-act="rematch-decline">Decline</button></div></div>`;
       body += `<div class="actions">${!(g.rematch && g.rematch !== you) ? `<button class="btn" data-act="rematch" ${g.rematch === you ? 'disabled' : ''}>${g.rematch === you ? 'Rematch offered' : 'Rematch'}</button>` : ''}<button class="btn btn-brass" data-act="new-opponent">New opponent</button>${L.moves.length ? '<button class="btn" data-act="review-current">Review game</button>' : ''}</div>`;
+      const pk = parkedBotGame();
+      if (pk || ON.returnTo) body += `<div class="actions">${pk ? `<button class="btn" data-act="resume-bot">Resume your game against ${esc(parkedBotName(pk))}</button>` : `<button class="btn" data-act="back-trainer">Back to ${ON.returnTo === 'lesson' ? 'the openings' : 'puzzles'}</button>`}</div>`;
     }
     body += `<button class="back-link" data-act="lobby">← Back to the lobby</button>`;
   }
-  const head = `${esc(L.names.w)} vs ${esc(L.names.b)}`;
+  const pname = (n) => `<button class="pl-link" data-open-player="${esc(n)}">${esc(n)}</button>`;
+  const head = `${pname(L.names.w)} vs ${pname(L.names.b)}`;
   return `<div><h2>${active ? 'Live game' : 'Game over'}</h2><p class="card-sub" style="margin:4px 0 0">${head} · ${esc(g.tc)} · ${g.rated ? 'rated' : 'friend game'}</p></div>${body}`;
 }
 function onlineBanner() {
@@ -3517,6 +3611,8 @@ function wireOnline() {
   $('#btnOnline').hidden = false;
   $('#btnOnline').addEventListener('click', (e) => {
     if (S.mode === 'online' && ON.game && ON.game.status === 'active') return;
+    // A bot game is paused (resume it from the lobby) when you are in the queue, or when it already was paused
+    if ((S.mode === 'play' && (ON.seeking || ON.challenge)) || S.mode === 'paused') { parkCurrent(); trainerStop(); openOnline(); return; }
     if (S.mode === 'play' && S.line && S.line.moves.length) { armOrRun(e.currentTarget, 'Leave this game?', () => { abandonGame(); openOnline(); }); return; }
     if (S.mode === 'review' && S.review) { S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
     trainerStop(); openOnline();
@@ -3539,6 +3635,7 @@ function wireOnline() {
     if (b.dataset.auth) { ON.authTab = b.dataset.auth; ON.authError = ''; renderOnlinePanel(); return; }
     if (b.dataset.tc) { ON.tc = b.dataset.tc; renderAll(); return; }
     if (b.dataset.review) { reviewOnlineGame(b.dataset.review); return; }
+    if (b.dataset.switch) { ON.tc = b.dataset.switch; findOpponent(); return; }
     const g = ON.game; const act = b.dataset.act;
     const send = async (ev, d) => { const r = await emitOn(ev, d); if (r.error) toast(r.error); return r; };
     switch (act) {
@@ -3549,7 +3646,10 @@ function wireOnline() {
       case 'copy-link': { const inp = $('#chalUrl'); try { await navigator.clipboard.writeText(inp.value); toast('Link copied.'); } catch (err) { inp.select(); } break; }
       case 'accept-incoming': acceptIncoming(); break;
       case 'dismiss-incoming': ON.incoming = null; history.replaceState(null, '', '/'); renderOnlinePanel(); break;
-      case 'play-sf': await cancelSeek(); abandonGame(); break;
+      case 'wait-bot': if (parkedBotGame()) resumeParked(); else { abandonGame(); toast('Pick a bot and press Play. You stay in the queue.'); } break;
+      case 'wait-puzzles': trainerStop(); openPuzzles(); break;
+      case 'resume-bot': resumeParked(); break;
+      case 'back-trainer': backToTrainer(); break;
       case 'logout': logout(); break;
       case 'delete': ON.confirmDelete = true; ON.deleteError = ''; renderOnlinePanel(); break;
       case 'cancel-delete': ON.confirmDelete = false; renderOnlinePanel(); break;
@@ -3566,7 +3666,12 @@ function wireOnline() {
       case 'lobby': openOnline(); break;
     }
   });
-  setInterval(() => { if (S.mode === 'online' && ON.seeking && !ON.game) renderOnlinePanel(); }, 1000);
+  setInterval(() => { if (S.mode === 'online' && ON.seeking && !ON.game) renderOnlinePanel(); renderQueueBar(); }, 1000);
+  $('#queueBar').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-q]'); if (!b) return;
+    if (b.dataset.q === 'lobby') $('#btnOnline').click();
+    else if (ON.seeking) cancelSeek(); else cancelChallenge();
+  });
 }
 async function bootOnline() {
   if (typeof io === 'undefined') return;
@@ -3582,7 +3687,7 @@ window.WP_ONLINE = {
   canMove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() === ON.game.you),
   canPremove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() !== ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
-  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(),
+  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: renderQueueBar,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
   login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
   logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },
@@ -3590,6 +3695,473 @@ window.WP_ONLINE = {
     ? { n: ON.me ? ON.me.username : 'You', s: ON.me ? `Rating ${myRating(ON.tc)}` : 'Log in to play' }
     : { n: ON.seeking ? 'Searching…' : 'Opponent', s: ON.seeking ? `${ON.seeking.tc} · rated` : 'Not paired yet' },
 };
+
+/* =====================================================================
+   Review a game: find your recent games on Lichess or Chess.com by
+   username (the Woodpusher server fetches them, see server/import.js),
+   or paste a PGN.
+   ===================================================================== */
+const IMP_KEY = 'woodpusher.import.v1';
+const IMP_SITES = { lichess: 'Lichess', chesscom: 'Chess.com' };
+const IMP = Object.assign({ tab: 'user', site: 'lichess', name: '' },
+  (() => { try { return JSON.parse(localStorage.getItem(IMP_KEY)) || {}; } catch (e) { return {}; } })(),
+  { busy: false, error: '', data: null, token: 0, wired: false });
+if (!IMP_SITES[IMP.site]) IMP.site = 'lichess';
+function saveImp() { try { localStorage.setItem(IMP_KEY, JSON.stringify({ tab: IMP.tab, site: IMP.site, name: IMP.name })); } catch (e) {} }
+// The look-up needs the Woodpusher server; a copy of the page without it only offers pasting.
+const impAvailable = () => typeof io !== 'undefined';
+
+function impAgo(ms) {
+  if (!ms) return '';
+  const s = (Date.now() - ms) / 1000;
+  if (s < 3600) { const m = Math.max(1, Math.round(s / 60)); return `${m} min ago`; }
+  if (s < 86400) { const h = Math.round(s / 3600); return `${h} hour${h === 1 ? '' : 's'} ago`; }
+  if (s < 7 * 86400) { const d = Math.round(s / 86400); return d === 1 ? 'yesterday' : `${d} days ago`; }
+  const d = new Date(ms); const same = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-GB', same ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+}
+const IMP_REASON = { checkmate: 'checkmate', resignation: 'resigned', 'on time': 'on time', abandonment: 'left the game', agreement: 'draw agreed', draw: 'draw', stalemate: 'stalemate', 'threefold repetition': 'repetition', 'insufficient material': 'insufficient material', 'the 50-move rule': '50-move rule', 'timeout vs insufficient material': 'timeout vs insufficient material', 'cheat detected': 'cheat detected' };
+
+function impRow(g, i) {
+  const you = g.you; const opp = you === 'b' ? g.white : g.black;
+  const res = g.result === '1/2-1/2' ? 'draw' : you ? ((g.result === '1-0') === (you === 'w') ? 'win' : 'loss') : '';
+  const badge = res === 'win' ? 'W' : res === 'loss' ? 'L' : res === 'draw' ? '½' : '·';
+  const title = you ? `vs ${esc(opp.name)}${opp.rating ? ` <span class="meta">(${opp.rating})</span>` : ''}` : `${esc(g.white.name)} vs ${esc(g.black.name)}`;
+  const meta = [g.tc, g.speed, g.rated ? 'rated' : 'casual', IMP_REASON[g.reason] || '', impAgo(g.endedAt)].filter(Boolean).map(esc).join(' · ');
+  const label = `${res === 'win' ? 'Win' : res === 'loss' ? 'Loss' : res === 'draw' ? 'Draw' : 'Game'} ${you ? 'against ' + opp.name : g.white.name + ' against ' + g.black.name}, ${[g.tc, g.speed, impAgo(g.endedAt)].filter(Boolean).join(', ')}. Review it.`;
+  return `<button class="game-row imp-row" data-imp="${i}" aria-label="${esc(label)}"><span class="res ${res}" aria-hidden="true">${badge}</span><span aria-hidden="true"><span>${title}</span><br><span class="meta">${meta}</span>${g.opening ? `<br><span class="meta">${esc(g.opening)}</span>` : ''}</span><span class="imp-go" aria-hidden="true">Review</span></button>`;
+}
+function impRender() {
+  const can = impAvailable(); const user = can && IMP.tab === 'user';
+  $('#impTabs').hidden = !can;
+  document.querySelectorAll('#impTabs [data-imptab]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.imptab === (user ? 'user' : 'paste'))));
+  $('#impUserPane').hidden = !user; $('#impPastePane').hidden = user;
+  $('#pgnSample').hidden = user; $('#pgnGo').hidden = user; $('#pgnCancel').textContent = user ? 'Close' : 'Cancel';
+  if (!can) return;
+  document.querySelectorAll('#impSite .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.site === IMP.site)));
+  const go = $('#impGo'); go.disabled = IMP.busy; go.textContent = IMP.busy ? 'Finding…' : 'Find games';
+  const err = $('#impErr'); err.hidden = !IMP.error; err.textContent = IMP.error;
+  const list = $('#impList'); const site = IMP_SITES[IMP.site];
+  if (IMP.busy) list.innerHTML = `<p class="fine"><span class="spinner"></span>Fetching the games from ${esc(site)}…</p>`;
+  else if (IMP.data && IMP.data.site === IMP.site) {
+    const d = IMP.data;
+    list.innerHTML = d.games.length
+      ? `<span class="field-label">Recent games of ${esc(d.username)} on ${esc(IMP_SITES[d.site])}</span><div class="game-list">${d.games.map(impRow).join('')}</div><p class="fine">Standard chess only. Variants such as Chess960 are left out.</p>`
+      : `<p class="fine">${esc(d.username)} has no finished games of standard chess on ${esc(IMP_SITES[d.site])} yet.</p>`;
+  } else list.innerHTML = '';
+}
+async function impSearch() {
+  const inp = $('#impName'); const name = inp.value.trim();
+  if (!name) { IMP.error = 'Type a username first.'; impRender(); inp.focus(); return; }
+  IMP.name = name; saveImp();
+  IMP.busy = true; IMP.error = ''; const token = ++IMP.token; impRender();
+  try {
+    const d = await api(`/import/${IMP.site}/${encodeURIComponent(name)}`);
+    if (token !== IMP.token) return;
+    IMP.data = d;
+  } catch (e) {
+    if (token !== IMP.token) return;
+    IMP.data = null; IMP.error = e instanceof TypeError ? 'No connection. Check your internet and try again.' : e.message;
+  }
+  IMP.busy = false; impRender();
+}
+function impReview(i) {
+  const g = IMP.data && IMP.data.games[i]; if (!g) return;
+  if (S.mode === 'play') { IMP.error = 'Finish or abandon your current game first.'; impRender(); return; }
+  try { loadPGNForReview(g.pgn, { you: g.you, reason: g.reason }); $('#pgnModal').hidden = true; }
+  catch (e) { IMP.error = e.message; impRender(); }
+}
+function impOpen(tab) {
+  const can = impAvailable();
+  if (can && (tab === 'user' || tab === 'paste')) { IMP.tab = tab; saveImp(); }
+  impRender();
+  if (can && IMP.tab === 'user') {
+    const inp = $('#impName'); if (!inp.value) inp.value = IMP.name;
+    // A remembered username shows its games straight away
+    if (inp.value && !IMP.busy && !(IMP.data && IMP.data.site === IMP.site && IMP.data.username.toLowerCase() === inp.value.trim().toLowerCase())) impSearch();
+    if (!inp.value) inp.focus();
+  } else $('#pgnInput').focus();
+}
+function impBoot() {
+  if (!impAvailable() || IMP.wired) return; IMP.wired = true;
+  $('#btnFindGames').hidden = false;
+  $('#ctaSub').textContent = 'Pick one of your games on Lichess or Chess.com by username, or paste a PGN, and get every move graded, from best to blunder.';
+  $('#impTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-imptab]'); if (!b) return; IMP.tab = b.dataset.imptab; saveImp(); impOpen(); });
+  $('#impSite').addEventListener('click', (e) => { const b = e.target.closest('[data-site]'); if (!b || b.dataset.site === IMP.site) return; IMP.site = b.dataset.site; IMP.error = ''; IMP.token++; IMP.busy = false; saveImp(); impRender(); $('#impName').focus(); });
+  $('#impForm').addEventListener('submit', (e) => { e.preventDefault(); impSearch(); });
+  $('#impList').addEventListener('click', (e) => { const b = e.target.closest('[data-imp]'); if (b) impReview(+b.dataset.imp); });
+}
+window.WP_IMPORT = { open: impOpen, boot: impBoot };
+
+/* =====================================================================
+   Progress follows your account: your puzzle rating and streaks, the
+   opening lines you practised, and your games against Stockfish (behind
+   the estimated Elo). This browser keeps a copy, so it works offline too;
+   changes go to the server a moment later and are merged there with what
+   your other devices sent (server/progress.js).
+   ===================================================================== */
+const SYNC_KEY = 'woodpusher.sync.v1';
+// owner: the account this browser's copy belongs to. mergeId: progress made before logging in that is
+// on its way into the account (kept across a reload, so a retry doesn't count it twice).
+const SYNC = Object.assign({ owner: null, mergeId: null },
+  (() => { try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || {}; } catch (e) { return {}; } })(),
+  { user: undefined, rev: 0, timer: null, busy: false, again: false, last: 0, failures: 0, silent: false, wired: false });
+function saveSyncState() { try { localStorage.setItem(SYNC_KEY, JSON.stringify({ owner: SYNC.owner, mergeId: SYNC.mergeId })); } catch (e) {} }
+
+const PZ_START = () => ({ rating: 1200, solved: 0, tried: 0, streak: 0, best: 0, seen: {} });
+const progressPayload = () => ({ lines: PROG.lines, pz: PROG.pz, hist: HIST.games });
+const hasLocalProgress = () => PROG.pz.tried > 0 || Object.keys(PROG.lines).length > 0 || HIST.games.length > 0;
+function setLocalProgress(d) {
+  PROG.lines = (d && d.lines) || {}; PROG.pz = Object.assign(PZ_START(), (d && d.pz) || {});
+  HIST.games = d && Array.isArray(d.hist) ? d.hist : [];
+  SYNC.silent = true; try { saveProg(); saveHist(); } finally { SYNC.silent = false; }
+  renderUserSection();
+  if (S.mode === 'puzzle' || S.mode === 'lesson') renderTrainer();
+  if (window.WP_PLAYERS) window.WP_PLAYERS.refresh();
+}
+// trainer.js and profile.js call this whenever they save
+function progressChanged() { if (SYNC.silent) return; SYNC.rev++; schedulePush(1500); }
+function schedulePush(ms) {
+  if (!SYNC.user || SYNC.owner !== SYNC.user.id) return;
+  clearTimeout(SYNC.timer); SYNC.timer = setTimeout(() => pushProgress(), ms);
+}
+async function pushProgress(extra) {
+  if (!SYNC.user) return false;
+  if (SYNC.busy) { SYNC.again = true; return false; }
+  SYNC.busy = true; const rev = SYNC.rev; const uid = SYNC.user.id; let ok = false;
+  try {
+    const d = await api('/progress', { method: 'PUT', body: Object.assign({ progress: progressPayload() }, extra || {}) });
+    ok = true; SYNC.failures = 0; SYNC.last = Date.now();
+    if (SYNC.user && SYNC.user.id === uid) {
+      SYNC.owner = uid; if (extra && extra.guest) SYNC.mergeId = null; saveSyncState();
+      if (SYNC.rev === rev) setLocalProgress(d.progress); else SYNC.again = true;   // newer changes go up next
+    }
+  } catch (e) {
+    // Offline, or the server is restarting: try again a little later
+    SYNC.failures++; clearTimeout(SYNC.timer);
+    SYNC.timer = setTimeout(() => pushProgress(extra), Math.min(5 * 60 * 1000, 15000 * SYNC.failures));
+  } finally {
+    SYNC.busy = false;
+    if (SYNC.again) { SYNC.again = false; schedulePush(400); }
+  }
+  return ok;
+}
+// online.js calls this when it knows who is logged in (null: nobody), and after logging in or out
+async function syncUser(me) {
+  const prev = SYNC.user; SYNC.user = me || null;
+  if (!me) {
+    // Logged out (not just offline): this browser's copy belonged to the account, which keeps it
+    if (prev) { clearTimeout(SYNC.timer); SYNC.owner = null; SYNC.mergeId = null; saveSyncState(); setLocalProgress(null); }
+    return;
+  }
+  if (prev && prev.id === me.id) return;
+  if (SYNC.owner === me.id) { await pushProgress(); return; }
+  if (SYNC.owner == null && hasLocalProgress()) {
+    // Progress made here before logging in goes into the account, added to what it already has
+    if (!SYNC.mergeId) { SYNC.mergeId = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); saveSyncState(); }
+    if (await pushProgress({ guest: true, mergeId: SYNC.mergeId })) { SYNC.mergeId = null; saveSyncState(); }
+    return;
+  }
+  // Another account's copy, or nothing yet: start from what this account has
+  if (SYNC.owner != null && SYNC.owner !== me.id) setLocalProgress(null);
+  await pushProgress();
+}
+// Before logging out: send anything not sent yet
+async function flushProgress() { clearTimeout(SYNC.timer); if (SYNC.user && SYNC.owner === SYNC.user.id) await pushProgress(); }
+function syncBoot() {
+  if (typeof io === 'undefined' || SYNC.wired) return; SYNC.wired = true;
+  // Back on the page after a while: pick up what other devices did meanwhile
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && SYNC.user && Date.now() - SYNC.last > 60 * 1000) pushProgress(); });
+  window.addEventListener('online', () => { if (SYNC.user && SYNC.failures) pushProgress(); });
+}
+window.WP_SYNC = { boot: syncBoot, onUser: syncUser, flush: flushProgress, synced: () => !!(SYNC.user && SYNC.owner === SYNC.user.id) };
+
+/* =====================================================================
+   Profile pages (/@/name) and the leaderboard (/leaderboard): ratings
+   per time control, a rating graph, the whole game history, and, on your
+   own profile, your puzzle and opening progress. Shown in a large dialog
+   over the board, so a game underneath keeps its place.
+   ===================================================================== */
+const PL = { view: null, name: null, prof: null, hist: null, cat: 'blitz', listAll: false, games: [], next: null, loading: false, error: '',
+  board: null, boardCat: 'blitz', pushed: false, ignorePop: false, token: 0, from: null, hover: null };
+const PL_CATS = [['bullet', 'Bullet'], ['blitz', 'Blitz'], ['rapid', 'Rapid'], ['classical', 'Classical']];
+const plCatLabel = (c) => (PL_CATS.find(x => x[0] === c) || ['', 'All'])[1];
+const plAvailable = () => typeof io !== 'undefined';
+const plMe = () => (window.WP_ONLINE && window.WP_ONLINE.me()) || null;
+const plIsMe = () => { const me = plMe(); return !!(me && PL.prof && me.username.toLowerCase() === PL.prof.username.toLowerCase()); };
+function plDate(iso, withYear) { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('en-GB', withYear ? { day: 'numeric', month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' }); }
+
+/* ---------------- opening and closing ---------------- */
+function plSetUrl(url) {
+  const modal = $('#playerModal');
+  if (modal.hidden) { PL.from = location.pathname; if (location.pathname !== url) { history.pushState({ wp: 'player' }, '', url); PL.pushed = true; } else PL.pushed = false; }
+  else if (location.pathname !== url) history.replaceState({ wp: 'player' }, '', url);
+}
+function plShow() { const m = $('#playerModal'); if (m.hidden) { m.hidden = false; $('#playerBody').scrollTop = 0; } }
+function plClose() {
+  const m = $('#playerModal'); if (m.hidden) return;
+  m.hidden = true; PL.token++;
+  if (PL.pushed) { PL.pushed = false; PL.ignorePop = true; history.back(); }
+  else if (/^\/(@\/|leaderboard)/.test(location.pathname)) history.replaceState(null, '', PL.from && !/^\/(@\/|leaderboard)/.test(PL.from) ? PL.from : '/');
+}
+async function plOpenProfile(name) {
+  if (!plAvailable()) return;
+  plSetUrl('/@/' + encodeURIComponent(name));
+  const token = ++PL.token; PL.view = 'profile'; PL.name = name; PL.prof = null; PL.hist = null; PL.games = []; PL.next = null; PL.error = ''; PL.listAll = false; PL.hover = null;
+  plShow(); plRender();
+  try {
+    const [prof, hist] = await Promise.all([api('/users/' + encodeURIComponent(name)), api('/users/' + encodeURIComponent(name) + '/ratings')]);
+    if (token !== PL.token) return;
+    PL.prof = prof; PL.hist = hist.ratings;
+    // Start on the time control with the most games
+    const best = PL_CATS.map(([c]) => [c, (prof.ratings[c] && prof.ratings[c].games) || 0]).sort((a, b) => b[1] - a[1])[0];
+    PL.cat = best && best[1] ? best[0] : 'blitz';
+    plRender(); plLoadGames(true);
+  } catch (e) { if (token !== PL.token) return; PL.error = e.message; plRender(); }
+}
+async function plLoadGames(reset) {
+  if (!PL.prof) return;
+  const token = PL.token; if (reset) { PL.games = []; PL.next = null; }
+  PL.loading = true; plRenderGames();
+  try {
+    const qs = new URLSearchParams({ cat: PL.listAll ? 'all' : PL.cat, limit: '20' }); if (!reset && PL.next) qs.set('before', PL.next);
+    const d = await api(`/users/${encodeURIComponent(PL.prof.username)}/games?${qs}`);
+    if (token !== PL.token) return;
+    PL.games = reset ? d.games : PL.games.concat(d.games); PL.next = d.next;
+  } catch (e) { if (token !== PL.token) return; PL.error = e.message; }
+  PL.loading = false; plRenderGames();
+}
+async function plOpenBoard(cat) {
+  if (!plAvailable()) return;
+  plSetUrl('/leaderboard');
+  if (cat) PL.boardCat = cat;
+  const token = ++PL.token; PL.view = 'board'; PL.board = null; PL.error = '';
+  plShow(); plRender();
+  try { const d = await api('/leaderboard?cat=' + PL.boardCat); if (token !== PL.token) return; PL.board = d; }
+  catch (e) { if (token !== PL.token) return; PL.error = e.message; }
+  plRender();
+}
+
+/* ---------------- the profile ---------------- */
+function plRender() {
+  const el = $('#playerBody');
+  if (PL.view === 'board') { el.innerHTML = plBoardHTML(); return; }
+  if (!PL.prof) {
+    el.innerHTML = `<h2 class="pl-title" id="plTitle">${esc(PL.name || 'Player')}</h2>${PL.error ? `<p class="err">${esc(PL.error)}</p>` : '<p class="fine"><span class="spinner"></span>Loading the profile…</p>'}`;
+    return;
+  }
+  const p = PL.prof; const me = plIsMe();
+  const total = PL_CATS.reduce((n, [c]) => { const r = p.records && p.records[c]; return n + (r ? r.w + r.d + r.l : 0); }, 0);
+  const boxes = PL_CATS.map(([c, label]) => {
+    const x = p.ratings[c] || { rating: 1500, provisional: true, games: 0 }; const rec = (p.records && p.records[c]) || { w: 0, d: 0, l: 0 };
+    return `<button class="rbox pl-cat" data-cat="${c}" aria-pressed="${c === PL.cat}"><small>${label}</small><b>${x.rating}${x.provisional ? '?' : ''}</b><span class="rbox-n">${x.games} rated</span><span class="rbox-n pl-rec" title="Wins, draws and losses">${rec.w}–${rec.d}–${rec.l}</span></button>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="pl-head"><span class="you-ic" aria-hidden="true">${pieceSVG('wK')}</span>
+      <div class="pl-who"><h2 class="pl-title" id="plTitle">${esc(p.username)}</h2><p class="fine">${esc(sinceText(p.createdAt))} · ${total} game${total === 1 ? '' : 's'}${me ? ' · <b>this is you</b>' : ''}</p></div>
+      <button class="btn btn-small" data-pl="board">Leaderboard</button></div>
+    <div class="ratings-row pl-cats" role="group" aria-label="Time control">${boxes}</div>
+    <p class="fine">A <b>?</b> means the rating is still settling. The three numbers are wins, draws and losses.</p>
+    <section class="pl-sec"><span class="field-label" id="plGraphLbl">${plCatLabel(PL.cat)} rating</span><div class="pl-chart" id="plChart"></div></section>
+    ${me ? plProgressHTML() : ''}
+    <section class="pl-sec"><div class="pl-list-head"><span class="field-label">Games</span>
+      <div class="seg pl-filter" role="group" aria-label="Which games"><button class="seg-btn" data-all="0" aria-pressed="${!PL.listAll}">${plCatLabel(PL.cat)}</button><button class="seg-btn" data-all="1" aria-pressed="${PL.listAll}">All</button></div></div>
+      <div id="plGames"></div></section>`;
+  plDrawChart(); plRenderGames();
+}
+function plProgressHTML() {
+  const s = PROG.pz; const lines = Object.values(PROG.lines); const perfect = lines.filter(x => x.perfect).length; const est = estimateElo();
+  const synced = window.WP_SYNC && window.WP_SYNC.synced();
+  return `<section class="pl-sec"><span class="field-label">Your progress${synced ? ' · saved to your account' : ''}</span>
+    <div class="pl-prog">
+      <div><small>Puzzles</small><b>${s.rating}</b><span class="fine">${s.solved} solved of ${s.tried} · best streak ${s.best}</span></div>
+      <div><small>Openings</small><b>${lines.length}</b><span class="fine">line${lines.length === 1 ? '' : 's'} practised${lines.length ? `, ${perfect} without mistakes` : ''}</span></div>
+      <div><small>Elo vs Stockfish</small><b>${!est ? '–' : est.above ? ELO_MAX + '+' : '≈' + est.elo}</b><span class="fine">${est ? esc(est.confidence) : 'Play Stockfish to get one'}</span></div>
+    </div><p class="fine">Only you see this part.</p></section>`;
+}
+function plGameRowHTML(gm) {
+  const res = gm.result === '1/2-1/2' ? 'draw' : (gm.result === '1-0') === (gm.color === 'w') ? 'win' : 'loss';
+  const diff = gm.diff != null ? `<span class="d ${gm.diff > 0 ? 'up' : gm.diff < 0 ? 'down' : ''}">${gm.diff > 0 ? '+' : gm.diff < 0 ? MINUS : '±'}${Math.abs(gm.diff)}</span>` : '<span class="d"></span>';
+  const moves = gm.plies ? `${Math.ceil(gm.plies / 2)} moves` : '';
+  const meta = [gm.tc, gm.rated ? 'rated' : 'friend game', gm.reason || '', moves, plDate(gm.endedAt, new Date(gm.endedAt).getFullYear() !== new Date().getFullYear())].filter(Boolean).map(esc).join(' · ');
+  const opp = gm.opponent === 'Deleted player' ? '<span>vs Deleted player</span>' : `<button class="pl-link" data-player="${esc(gm.opponent)}">vs ${esc(gm.opponent)}</button>`;
+  return `<div class="game-row pl-game"><span class="res ${res}" aria-label="${res === 'win' ? 'Win' : res === 'loss' ? 'Loss' : 'Draw'}">${res === 'win' ? 'W' : res === 'loss' ? 'L' : '½'}</span>
+    <span>${opp}${gm.oppRating ? ` <span class="meta">(${gm.oppRating})</span>` : ''}<br><span class="meta">${meta}</span></span>
+    <span class="pl-row-end">${diff}<button class="btn btn-small" data-review="${esc(gm.id)}" ${gm.plies ? '' : 'disabled'}>Review</button></span></div>`;
+}
+function plRenderGames() {
+  const el = $('#plGames'); if (!el) return;
+  const what = PL.listAll ? '' : plCatLabel(PL.cat).toLowerCase() + ' ';
+  let html = PL.games.length ? `<div class="game-list">${PL.games.map(plGameRowHTML).join('')}</div>` : PL.loading ? '' : `<p class="fine">No finished ${what}games yet.</p>`;
+  if (PL.loading) html += '<p class="fine"><span class="spinner"></span>Loading games…</p>';
+  else if (PL.next) html += '<button class="btn btn-small" data-pl="more">Show more games</button>';
+  if (PL.error) html += `<p class="err">${esc(PL.error)}</p>`;
+  el.innerHTML = html;
+}
+
+/* ---------------- the rating graph ---------------- */
+// One line: the rating after each rated game, game number along the bottom. Hover, tap or the arrow
+// keys show the exact rating, the change and the date; a table under it lists the same numbers.
+function plSeries() {
+  const h = PL.hist && PL.hist[PL.cat]; if (!h || !h.points.length) return [];
+  return [{ n: 0, r: h.start, t: null }].concat(h.points.map((p, i) => ({ n: i + 1, r: p[1], t: p[0] })));
+}
+function plDrawChart() {
+  const box = $('#plChart'); if (!box) return;
+  const pts = plSeries(); const label = plCatLabel(PL.cat);
+  if (pts.length < 2) { box.innerHTML = `<p class="fine pl-empty">No rated ${label.toLowerCase()} games yet. The graph starts after the first one.</p>`; return; }
+  const W = Math.max(280, Math.round(box.clientWidth || 520)), H = 190, L = 44, R = 12, T = 12, B = 26;
+  const rs = pts.map(p => p.r); let lo = Math.min(...rs), hi = Math.max(...rs);
+  const pad = Math.max(20, (hi - lo) * 0.12); lo = Math.floor((lo - pad) / 25) * 25; hi = Math.ceil((hi + pad) / 25) * 25;
+  const span = hi - lo; const step = [25, 50, 100, 200, 250, 500].find(s => span / s <= 4) || 1000;
+  const x = (n) => L + (W - L - R) * (n / (pts.length - 1)); const y = (r) => T + (H - T - B) * (1 - (r - lo) / (hi - lo));
+  let grid = '';
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) grid += `<line class="pl-grid" x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text class="pl-ax" x="${L - 6}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.n).toFixed(1)},${y(p.r).toFixed(1)}`).join('');
+  const area = `${d}L${x(pts[pts.length - 1].n).toFixed(1)},${H - B}L${x(0).toFixed(1)},${H - B}Z`;
+  const last = pts[pts.length - 1];
+  const ticks = `<text class="pl-ax" x="${L}" y="${H - 8}" text-anchor="start">Start</text><text class="pl-ax" x="${W - R}" y="${H - 8}" text-anchor="end">Game ${pts.length - 1}</text>`;
+  const rows = pts.slice(1).slice(-30).reverse().map(p => `<tr><td>${p.n}</td><td>${p.r}</td><td>${p.t ? plDate(p.t, true) : ''}</td></tr>`).join('');
+  box.innerHTML = `<div class="pl-plot" tabindex="0" role="img" aria-label="${esc(label)} rating over ${pts.length - 1} rated games, from ${pts[0].r} to ${last.r}, lowest ${Math.min(...rs)}, highest ${Math.max(...rs)}. Use the arrow keys to read each game.">
+      <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">${grid}
+        <path class="pl-area" d="${area}"/><path class="pl-line" d="${d}"/>
+        <circle class="pl-end" cx="${x(last.n).toFixed(1)}" cy="${y(last.r).toFixed(1)}" r="4"/>${ticks}
+        <g class="pl-cross" hidden><line class="pl-hair" y1="${T}" y2="${H - B}"/><circle class="pl-dot" r="5"/></g></svg>
+      <div class="pl-tip" hidden></div></div>
+    <details class="pl-table"><summary>Show as a table</summary><table><thead><tr><th>Game</th><th>Rating after</th><th>Date</th></tr></thead><tbody>${rows}</tbody></table>${pts.length > 31 ? '<p class="fine">The latest 30 games.</p>' : ''}</details>`;
+  const plot = box.querySelector('.pl-plot'); const svg = plot.querySelector('svg'); const cross = svg.querySelector('.pl-cross'); const tip = plot.querySelector('.pl-tip');
+  const show = (i) => {
+    if (i == null) { cross.setAttribute('hidden', ''); tip.hidden = true; PL.hover = null; return; }
+    i = clamp(i, 0, pts.length - 1); PL.hover = i; const p = pts[i]; const cx = x(p.n), cy = y(p.r);
+    cross.removeAttribute('hidden'); cross.querySelector('.pl-hair').setAttribute('x1', cx); cross.querySelector('.pl-hair').setAttribute('x2', cx);
+    cross.querySelector('.pl-dot').setAttribute('cx', cx); cross.querySelector('.pl-dot').setAttribute('cy', cy);
+    const prev = i > 0 ? pts[i - 1].r : null; const ch = prev == null ? '' : p.r - prev;
+    tip.textContent = '';
+    const b = document.createElement('b'); b.textContent = String(p.r); tip.appendChild(b);
+    const s = document.createElement('span'); s.textContent = i === 0 ? 'Before the first rated game' : `After game ${p.n}${ch !== '' ? ` · ${ch > 0 ? '+' : ch < 0 ? MINUS : '±'}${Math.abs(ch)}` : ''}${p.t ? ' · ' + plDate(p.t, true) : ''}`; tip.appendChild(s);
+    tip.hidden = false;
+    const scale = svg.getBoundingClientRect().width / W; const left = cx * scale; const tw = tip.offsetWidth;
+    tip.style.left = clamp(left - tw / 2, 0, Math.max(0, plot.clientWidth - tw)) + 'px'; tip.style.top = Math.max(0, cy * scale - tip.offsetHeight - 12) + 'px';
+  };
+  const nearest = (clientX) => { const r = svg.getBoundingClientRect(); const fx = ((clientX - r.left) / r.width) * W; return Math.round(clamp((fx - L) / (W - L - R), 0, 1) * (pts.length - 1)); };
+  plot.addEventListener('pointermove', (e) => show(nearest(e.clientX)));
+  plot.addEventListener('pointerdown', (e) => show(nearest(e.clientX)));
+  plot.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') show(null); });
+  plot.addEventListener('blur', () => show(null));
+  plot.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); show(PL.hover == null ? pts.length - 1 : PL.hover + (e.key === 'ArrowLeft' ? -1 : 1)); }
+    else if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); e.stopPropagation(); show(e.key === 'Home' ? 0 : pts.length - 1); }
+  });
+}
+
+/* ---------------- the leaderboard ---------------- */
+function plBoardHTML() {
+  const seg = `<div class="seg pl-board-cats" role="group" aria-label="Time control" style="grid-template-columns:repeat(4,1fr)">${PL_CATS.map(([c, l]) => `<button class="seg-btn" data-board="${c}" aria-pressed="${c === PL.boardCat}">${l}</button>`).join('')}</div>`;
+  const back = PL.prof ? `<button class="back-link" data-pl="back">← ${esc(PL.prof.username)}</button>` : '';
+  const head = `${back}<h2 class="pl-title" id="plTitle">Leaderboard</h2><p class="fine">The highest-rated players per time control, from rated games on Woodpusher.</p>${seg}`;
+  if (PL.error) return head + `<p class="err">${esc(PL.error)}</p>`;
+  const d = PL.board; if (!d) return head + '<p class="fine"><span class="spinner"></span>Loading…</p>';
+  const meName = (plMe() || {}).username;
+  if (!d.players.length) return head + `<p class="fine">Nobody has played a rated ${plCatLabel(d.category).toLowerCase()} game yet. Play one from Play online and you're on the board.</p>`;
+  const rows = d.players.map(p => `<li class="lb-row${meName && p.username.toLowerCase() === meName.toLowerCase() ? ' me' : ''}"><span class="lb-rank">${p.rank}</span><button class="pl-link lb-name" data-player="${esc(p.username)}">${esc(p.username)}</button><span class="lb-games">${p.games} game${p.games === 1 ? '' : 's'}</span><b class="lb-rating">${p.rating}${p.provisional ? '?' : ''}</b></li>`).join('');
+  const inTop = meName && d.players.some(p => p.username.toLowerCase() === meName.toLowerCase());
+  const you = d.you ? `<p class="fine lb-you">Your place: <b>${d.you.rank}</b> of ${d.total}, rating ${d.you.rating}${d.you.provisional ? '?' : ''}.</p>` : meName ? `<p class="fine lb-you">Play a rated ${plCatLabel(d.category).toLowerCase()} game to get a place.</p>` : '';
+  return head + `<ol class="lb" aria-label="${esc(plCatLabel(d.category))} leaderboard">${rows}</ol>${inTop ? (d.you ? `<p class="fine lb-you">You are number ${d.you.rank} of ${d.total}.</p>` : '') : you}
+    <p class="fine">Everyone with at least one rated game is listed. A <b>?</b> means the rating is still settling after only a few games.</p>`;
+}
+
+/* ---------------- wiring ---------------- */
+function plReview(id) {
+  if (S.mode === 'play') { toast('Finish or abandon your game first.'); return; }
+  if (window.WP_ONLINE && window.WP_ONLINE.active()) { toast('Your online game is still running. Finish or resign it first.'); return; }
+  const persp = PL.prof ? PL.prof.username : null;
+  plClose(); trainerStop(); reviewOnlineGame(id, persp);
+}
+function plBoot() {
+  if (!plAvailable() || PL.wired) return; PL.wired = true;
+  const modal = $('#playerModal');
+  $('#plClose').addEventListener('click', plClose);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) { plClose(); return; }
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    if (b.dataset.player) { plOpenProfile(b.dataset.player); return; }
+    if (b.dataset.review) { plReview(b.dataset.review); return; }
+    if (b.dataset.cat) { if (b.dataset.cat !== PL.cat) { PL.cat = b.dataset.cat; PL.hover = null; plRender(); if (!PL.listAll) plLoadGames(true); } return; }
+    if (b.dataset.all != null) { const all = b.dataset.all === '1'; if (all !== PL.listAll) { PL.listAll = all; plRender(); plLoadGames(true); } return; }
+    if (b.dataset.board) { if (b.dataset.board !== PL.boardCat) plOpenBoard(b.dataset.board); return; }
+    if (b.dataset.pl === 'board') { const c = PL.cat; plOpenBoard(c); return; }
+    if (b.dataset.pl === 'back' && PL.prof) { plOpenProfile(PL.prof.username); return; }
+    if (b.dataset.pl === 'more') { plLoadGames(false); return; }
+  });
+  // Escape closes the dialog (and restores the address) before the page's own Escape handling
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) { e.stopImmediatePropagation(); plClose(); } }, true);
+  // Back button closes it
+  window.addEventListener('popstate', () => { if (PL.ignorePop) { PL.ignorePop = false; return; } if (!modal.hidden) { PL.pushed = false; modal.hidden = true; PL.token++; } });
+  // Links anywhere on the page: the footer's Leaderboard, and profile links
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href^="/@/"], a[href="/leaderboard"]'); if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault(); const h = a.getAttribute('href');
+    if (h === '/leaderboard') plOpenBoard(); else plOpenProfile(decodeURIComponent(h.slice(3)));
+  });
+  // Buttons elsewhere on the page (lobby, Settings, the online game) that open a profile or the leaderboard
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-open-player], [data-open-board]'); if (!b) return;
+    document.querySelectorAll('.modal-back').forEach(m => { if (m.id !== 'playerModal') m.hidden = true; });
+    if (b.dataset.openBoard != null) plOpenBoard(); else plOpenProfile(b.dataset.openPlayer);
+  });
+  let rz = null; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (!modal.hidden && PL.view === 'profile' && PL.prof) plDrawChart(); }, 120); });
+  // Arriving on a profile or leaderboard address
+  const m = location.pathname.match(/^\/@\/([A-Za-z0-9_-]{1,30})\/?$/);
+  if (m) { PL.from = '/'; plOpenProfile(m[1]); PL.pushed = false; }
+  else if (location.pathname === '/leaderboard') { PL.from = '/'; plOpenBoard(); PL.pushed = false; }
+}
+window.WP_PLAYERS = { boot: plBoot, profile: plOpenProfile, board: plOpenBoard, refresh: () => { if (!$('#playerModal').hidden && PL.view === 'profile' && PL.prof) plRender(); } };
+
+/* =====================================================================
+   Woodpusher as an app: registers the service worker (sw.js), which lets
+   the site be installed and open without a connection, and offers to
+   install it in Settings and the footer.
+   ===================================================================== */
+const INS = { prompt: null, installed: false, wired: false };
+const insStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+const insIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function renderInstall() {
+  const sec = $('#installSection'); if (!sec) return;
+  const foot = $('#footInstall');
+  let html;
+  if (insStandalone() || INS.installed) html = '<p class="fine">Woodpusher is installed. It opens from your home screen or app list, and games against Stockfish, puzzles, openings and reviews work without a connection too.</p>';
+  else if (INS.prompt) html = '<p class="fine">Put Woodpusher on your home screen or desktop. It opens in its own window, and games against Stockfish, puzzles, openings and reviews also work without a connection.</p><div class="user-actions"><button class="btn btn-brass btn-small" data-install>Install Woodpusher</button></div>';
+  else if (insIOS()) html = '<p class="fine">On iPhone and iPad: open Woodpusher in Safari, tap the Share button, then <b>Add to Home Screen</b>. It then opens like an app and also works without a connection.</p>';
+  else html = '<p class="fine">To install Woodpusher as an app, open your browser’s menu and choose <b>Install app</b> or <b>Add to Home screen</b>. Chrome, Edge and Samsung Internet can, and Safari on iPhone and iPad (Share, then Add to Home Screen).</p>';
+  sec.querySelector('.ins-body').innerHTML = html; sec.hidden = false;
+  if (foot) foot.hidden = !(INS.prompt && !INS.installed && !insStandalone());
+}
+async function runInstall() {
+  const p = INS.prompt; if (!p) return;
+  INS.prompt = null;
+  try { p.prompt(); const r = await p.userChoice; if (r && r.outcome === 'accepted') INS.installed = true; } catch (e) {}
+  renderInstall();
+}
+// The browser's title bar follows the light or dark look
+function syncThemeColor() {
+  const m = document.querySelector('meta[name="theme-color"]'); if (!m) return;
+  const c = getComputedStyle(document.documentElement).getPropertyValue('--leather').trim(); if (c) m.setAttribute('content', c);
+}
+function installBoot() {
+  if (INS.wired) return; INS.wired = true;
+  // Only on the Woodpusher site itself (the built page links the manifest)
+  if (!document.querySelector('link[rel="manifest"]')) return;
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    const reg = () => navigator.serviceWorker.register('/sw.js').catch(() => {});
+    if (document.readyState === 'complete') reg(); else window.addEventListener('load', reg);
+  }
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); INS.prompt = e; renderInstall(); });
+  window.addEventListener('appinstalled', () => { INS.installed = true; INS.prompt = null; renderInstall(); toast('Woodpusher is installed.'); });
+  document.addEventListener('click', (e) => { if (e.target.closest('[data-install]')) { e.preventDefault(); runInstall(); } });
+  syncThemeColor(); new MutationObserver(syncThemeColor).observe(document.documentElement, { attributes: true, attributeFilter: ['data-look'] });
+  renderInstall();
+}
+window.WP_INSTALL = { boot: installBoot };
 
 function tick() {
   const g = S.game;
@@ -3619,6 +4191,7 @@ function boot(hot) {
   setTimeout(() => { buildOverlays(); buildQuickTextures(); scheduleTextureUpgrade(); watchZoom(); startOpening(); }, 0);
   bootEngine(); wireTrainer(); wireSettings();
   if (window.WP_ONLINE) window.WP_ONLINE.boot();
+  for (const k of ['WP_IMPORT', 'WP_SYNC', 'WP_PLAYERS', 'WP_INSTALL']) if (window[k] && window[k].boot) window[k].boot();
   if (window.claude && window.claude.hot && window.claude.hot.snapshot) window.claude.hot.snapshot(() => ({ state: snapshot() }));
 }
 function startApp(hot) {

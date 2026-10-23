@@ -144,11 +144,12 @@ function specialMove(i, ctx) {
 }
 
 /* ---------------- words ---------------- */
-// Which colour is "you" in this game, if any (your games against Stockfish and your online games).
+// Which colour is "you" in this game, if any (your games against Stockfish, your online games and games found by your username).
 function youColor() {
   const L = S.line, g = S.game; if (!L) return null;
   if (L.source === 'play' && g) return g.playerColor;
   if (L.source === 'online' && g && g.you) return g.you;
+  if (L.source === 'pgn' && L.you) return L.you;      // a game found by the player's username
   return null;
 }
 function sideWords(c) {

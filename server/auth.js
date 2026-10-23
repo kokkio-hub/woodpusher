@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { q } from './db.js';
 import { provisional } from './glicko.js';
+import { recordsFor, gameRow } from './players.js';
 
 const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{2,19}$/;
 const RESERVED = new Set(['stockfish', 'admin', 'administrator', 'woodpusher', 'anonymous', 'guest', 'system', 'moderator', 'support', 'root', 'null', 'undefined']);
@@ -101,14 +102,11 @@ export function publicRouter() {
     if (!rows.length) return res.status(404).json({ error: 'No player with that name.' });
     const u = rows[0];
     const games = await q(
-      `SELECT id, white_id, black_id, white_name, black_name, tc, category, rated, status, result, reason, white_diff, black_diff, ended_at
+      `SELECT id, white_id, black_id, white_name, black_name, white_rating, black_rating, tc, category, rated, status, result, reason, white_diff, black_diff, moves, ended_at
          FROM games WHERE (white_id = $1 OR black_id = $1) AND status = 'finished' ORDER BY created_at DESC LIMIT 20`, [u.id]);
     res.json({
-      username: u.username, createdAt: u.created_at, ratings: await ratingsFor(u.id),
-      games: games.rows.map((g) => {
-        const color = g.white_id === u.id ? 'w' : 'b';
-        return { id: g.id, color, opponent: color === 'w' ? g.black_name : g.white_name, tc: g.tc, category: g.category, rated: g.rated, result: g.result, reason: g.reason, diff: color === 'w' ? g.white_diff : g.black_diff, endedAt: g.ended_at };
-      }),
+      username: u.username, createdAt: u.created_at, ratings: await ratingsFor(u.id), records: await recordsFor(u.id),
+      games: games.rows.map((g) => gameRow(g, u.id)),
     });
   });
   r.get('/games/:id', async (req, res) => {

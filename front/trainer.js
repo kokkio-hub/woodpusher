@@ -5,7 +5,7 @@ const PROG_KEY = 'woodpusher.progress.v1';
 const PROG = (() => { try { return JSON.parse(localStorage.getItem(PROG_KEY)) || {}; } catch (e) { return {}; } })();
 PROG.lines = PROG.lines || {};
 PROG.pz = Object.assign({ rating: 1200, solved: 0, tried: 0, streak: 0, best: 0, seen: {} }, PROG.pz || {});
-function saveProg() { try { localStorage.setItem(PROG_KEY, JSON.stringify(PROG)); } catch (e) {} }
+function saveProg() { try { localStorage.setItem(PROG_KEY, JSON.stringify(PROG)); } catch (e) {} if (typeof progressChanged === 'function') progressChanged(); }
 
 const T = { kind: null, timers: [], hint: 0, wrong: null, right: null };
 function tLater(fn, ms) { const id = setTimeout(() => { T.timers = T.timers.filter(x => x !== id); fn(); }, ms); T.timers.push(id); }

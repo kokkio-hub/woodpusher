@@ -8,14 +8,15 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 const F = (p) => path.join(root, 'front', p); const P = (p) => path.join(root, 'public', p);
 const read = (p) => fs.readFileSync(p, 'utf8');
 let html = read(F('app.html'));
-const trainer = read(F('trainer.js')); const online = read(F('online.js'));
+// After the trainer: online play, then the parts that need the Woodpusher server (each checks for it)
+const trainer = ['trainer.js', 'online.js', 'importer.js', 'sync.js', 'players.js', 'install.js'].map(f => read(F(f))).join('\n');
 const must = (cond, msg) => { if (!cond) { console.error('build failed:', msg); process.exit(1); } };
 must(html.includes('/*TRAINER*/'), 'trainer marker');
 must(html.includes('<!--DATA-->'), 'data marker');
 const styles = ['styles.js', 'profile.js', 'opening.js', 'personas.js', 'commentary.js'].map(f => read(F(f))).join('\n');
 must(html.includes('/*STYLES*/'), 'styles marker');
 html = html.replace('/*STYLES*/', () => styles);
-html = html.replace('/*TRAINER*/', () => trainer + '\n' + online);
+html = html.replace('/*TRAINER*/', () => trainer);
 // The saved look is read before first paint. The site's security policy blocks inline scripts, so it becomes /look.js.
 const lookM = html.match(/<script>\/\*LOOK\*\/([\s\S]*?)<\/script>/);
 must(lookM, 'look script');
@@ -31,7 +32,7 @@ html = html.replace(/<link rel="preconnect"[^>]*>\n/g, '').replace(/<link rel="s
 must(!html.includes('fonts.googleapis.com'), 'google fonts removed');
 const KEYS = '<span>Keys: ← → step · Home / End · F flips · Space plays a review</span>';
 must(html.includes(KEYS), 'keys line');
-html = html.replace(KEYS, '<span><a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a> · Keys: ← → step · Home / End · F flips · Space plays a review</span>');
+html = html.replace(KEYS, '<span><span id="footInstall" hidden><a href="#" data-install>Install the app</a> · </span><a href="/leaderboard">Leaderboard</a> · <a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a> · Keys: ← → step · Home / End · F flips · Space plays a review</span>');
 for (const [a, b] of [["const BOOK_BASE = 'books/';", "const BOOK_BASE = '/books/';"], ["url: 'stockfish.js'", "url: '/stockfish.js'"], ["url: 'stockfish.asm.js'", "url: '/stockfish.asm.js'"], ["s.src = 'chess.js'", "s.src = '/chess.js'"]]) { must(app.includes(a), a); app = app.replace(a, b); }
 const cut = html.indexOf('</style>') + '</style>'.length;
 const page = `<!doctype html>
@@ -41,6 +42,13 @@ const page = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Play chess online, against Stockfish, solve puzzles and learn openings on a hand-drawn wooden board.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="application-name" content="Woodpusher">
+<meta name="apple-mobile-web-app-title" content="Woodpusher">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preload" href="/fonts/outfit-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <meta name="theme-color" content="#f3f1ef">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}[hidden]{display:none!important}</style>
@@ -62,6 +70,10 @@ for (const f of ['stockfish.js', 'stockfish.wasm', 'stockfish.asm.js', 'chess.js
 fs.copyFileSync(F('privacy.html'), P('privacy.html'));
 fs.copyFileSync(F('favicon.svg'), P('favicon.svg'));
 fs.mkdirSync(P('fonts'), { recursive: true }); for (const f of fs.readdirSync(F('fonts'))) fs.copyFileSync(F('fonts/' + f), P('fonts/' + f));
+// Installing as an app: manifest and icons
+fs.copyFileSync(F('manifest.webmanifest'), P('manifest.webmanifest'));
+fs.rmSync(P('icons'), { recursive: true, force: true }); fs.mkdirSync(P('icons'), { recursive: true });
+for (const f of fs.readdirSync(F('icons'))) fs.copyFileSync(F('icons/' + f), P('icons/' + f));
 // ---- version stamp
 const V = crypto.createHash('sha256');
 for (const f of ['app.js', 'data.js', 'look.js', 'chess.js', 'fonts/fonts.css', 'favicon.svg']) V.update(fs.readFileSync(P(f)));
@@ -73,4 +85,17 @@ stamp('index.html', [['src="/app.js"', `src="/app.js${q}"`], ['src="/data.js"', 
   ['src="/chess.js"', `src="/chess.js${q}"`], ['href="/fonts/fonts.css"', `href="/fonts/fonts.css${q}"`], ['href="/favicon.svg"', `href="/favicon.svg${q}"`]]);
 stamp('privacy.html', [['href="/fonts/fonts.css"', `href="/fonts/fonts.css${q}"`], ['src="/look.js"', `src="/look.js${q}"`], ['href="/favicon.svg"', `href="/favicon.svg${q}"`]]);
 stamp('app.js', [["const BOOK_QS = '';", `const BOOK_QS = '${q}';`]]);
+// ---- service worker: the files the site needs to open without a connection, and a version that
+// changes whenever any of them does (a new version replaces the cached copy of the site).
+// stockfish.asm.js, the fallback for very old browsers, is left out: it is cached only if it is used.
+const woff = fs.readdirSync(P('fonts')).filter(f => f.endsWith('.woff2')).sort();
+const icons = fs.readdirSync(P('icons')).sort(); const books = fs.readdirSync(P('books')).sort();
+const pre = ['/', `/app.js${q}`, `/data.js${q}`, `/look.js${q}`, `/chess.js${q}`, `/fonts/fonts.css${q}`, `/favicon.svg${q}`, '/stockfish.js', '/stockfish.wasm', '/manifest.webmanifest', '/privacy.html',
+  ...woff.map(f => '/fonts/' + f), ...icons.map(f => '/icons/' + f), ...books.map(f => `/books/${f}${q}`)];
+const SV = crypto.createHash('sha256');
+for (const f of ['index.html', 'app.js', 'data.js', 'look.js', 'chess.js', 'stockfish.js', 'stockfish.wasm', 'manifest.webmanifest', 'privacy.html', ...woff.map(f => 'fonts/' + f), ...icons.map(f => 'icons/' + f), ...books.map(f => 'books/' + f)]) SV.update(fs.readFileSync(P(f)));
+let sw = read(F('sw.js'));
+must(sw.includes("'__VERSION__'") && sw.includes('[/*PRECACHE*/]'), 'service worker markers');
+sw = sw.replace("'__VERSION__'", JSON.stringify(SV.digest('hex').slice(0, 10))).replace('[/*PRECACHE*/]', JSON.stringify(pre, null, 0));
+fs.writeFileSync(P('sw.js'), sw);
 console.log('built public/ (version ' + ver + '):', fs.readdirSync(P('')).join(', '));

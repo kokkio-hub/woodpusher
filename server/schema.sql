@@ -43,3 +43,10 @@ CREATE TABLE IF NOT EXISTS games (
 CREATE INDEX IF NOT EXISTS games_white_idx ON games (white_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS games_black_idx ON games (black_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS games_status_idx ON games (status);
+
+-- Puzzle, opening and Stockfish-game progress per account (see server/progress.js)
+CREATE TABLE IF NOT EXISTS progress (
+  user_id    INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  data       JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

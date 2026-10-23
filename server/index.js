@@ -9,6 +9,9 @@ import { Server } from 'socket.io';
 import { pool, migrate } from './db.js';
 import { authRouter, publicRouter } from './auth.js';
 import { Lobby } from './games.js';
+import { importRouter } from './import.js';
+import { progressRouter } from './progress.js';
+import { playersRouter } from './players.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const PROD = process.env.NODE_ENV === 'production';
@@ -53,7 +56,9 @@ const sessionMiddleware = session({
   cookie: { httpOnly: true, sameSite: 'lax', secure: PROD, maxAge: 30 * 24 * 60 * 60 * 1000 },
 });
 
-app.use(express.json({ limit: '10kb' }));
+// Requests are small, except a browser sending its saved progress (puzzles, openings, Stockfish games)
+const smallJson = express.json({ limit: '10kb' }), progressJson = express.json({ limit: '400kb' });
+app.use((req, res, next) => (req.path === '/api/progress' ? progressJson : smallJson)(req, res, next));
 app.use(sessionMiddleware);
 
 const server = http.createServer(app);
@@ -73,6 +78,9 @@ io.on('connection', (socket) => lobby.attach(socket));
 app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 app.use('/api', authRouter({ isPlaying: (id) => lobby.isPlaying(id) }));
 app.use('/api', publicRouter());
+app.use('/api', importRouter());
+app.use('/api', progressRouter());
+app.use('/api', playersRouter());
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 // Caching: files the page loads with a build version (?v=…) never change under that address, so
 // browsers may keep them for a year. Everything else, the page itself included, is checked with the
@@ -81,8 +89,8 @@ app.use(express.static(PUBLIC, {
   index: 'index.html',
   setHeaders: (res) => res.set('Cache-Control', res.req && res.req.query && res.req.query.v ? 'public, max-age=31536000, immutable' : 'no-cache'),
 }));
-// Links to games, friend challenges and profiles all open the app
-app.get(['/game/:id', '/c/:code', '/@/:name'], (req, res) => res.sendFile(path.join(PUBLIC, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
+// Links to games, friend challenges, profiles and the leaderboard all open the app
+app.get(['/game/:id', '/c/:code', '/@/:name', '/leaderboard'], (req, res) => res.sendFile(path.join(PUBLIC, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Something went wrong on the server.' }); });
 
