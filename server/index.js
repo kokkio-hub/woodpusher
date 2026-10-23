@@ -12,6 +12,9 @@ import { Lobby } from './games.js';
 import { importRouter } from './import.js';
 import { progressRouter } from './progress.js';
 import { playersRouter } from './players.js';
+import { puzzlesRouter, startPuzzleImport } from './puzzles.js';
+import { moderationRouter, pruneReports } from './moderation.js';
+import { FairPlay } from './fairplay.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const PROD = process.env.NODE_ENV === 'production';
@@ -72,6 +75,8 @@ const io = new Server(server, {
 });
 io.engine.use(sessionMiddleware);
 const lobby = new Lobby(io);
+const fairplay = new FairPlay();
+lobby.onFinished = (g) => fairplay.enqueue(g.id);
 io.on('connection', (socket) => lobby.attach(socket));
 
 // Never cache account data: every answer from /api is fresh.
@@ -81,6 +86,8 @@ app.use('/api', publicRouter());
 app.use('/api', importRouter());
 app.use('/api', progressRouter());
 app.use('/api', playersRouter());
+app.use('/api', puzzlesRouter());
+app.use('/api', moderationRouter());
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 // Caching: files the page loads with a build version (?v=…) never change under that address, so
 // browsers may keep them for a year. Everything else, the page itself included, is checked with the
@@ -90,12 +97,17 @@ app.use(express.static(PUBLIC, {
   setHeaders: (res) => res.set('Cache-Control', res.req && res.req.query && res.req.query.v ? 'public, max-age=31536000, immutable' : 'no-cache'),
 }));
 // Links to games, friend challenges, profiles and the leaderboard all open the app
-app.get(['/game/:id', '/c/:code', '/@/:name', '/leaderboard'], (req, res) => res.sendFile(path.join(PUBLIC, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
+app.get(['/game/:id', '/c/:code', '/@/:name', '/leaderboard', '/admin'], (req, res) => res.sendFile(path.join(PUBLIC, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Something went wrong on the server.' }); });
 
 await lobby.restore();
 server.listen(PORT, () => console.log(`Woodpusher listening on port ${PORT}`));
+// In the background: fill the puzzle table from the Lichess puzzle database the first time
+setTimeout(() => { startPuzzleImport(); }, 3000).unref();
+setTimeout(() => { fairplay.backlog().catch((e) => console.error('Fair play backlog', e.message)); }, 20000).unref();
+const prune = () => pruneReports().catch((e) => console.error('Reports', e.message));
+setTimeout(prune, 30000).unref(); setInterval(prune, 24 * 60 * 60 * 1000).unref();
 
 const shutdown = () => { console.log('Shutting down'); server.close(); pool.end().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 5000).unref(); };
 process.on('SIGTERM', shutdown);

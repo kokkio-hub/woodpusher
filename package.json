@@ -11,7 +11,7 @@
     "build:front": "node tools/build-front.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "license": "GPL-3.0-or-later",
   "dependencies": {

@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { q, withTx } from './db.js';
 import * as glicko from './glicko.js';
+import { isClosed } from './moderation.js';
 
 const require = createRequire(import.meta.url);
 const { Chess } = require('./vendor/chess.cjs');
@@ -16,9 +17,13 @@ export function categoryOf(tc) {
   const est = base + 40 * inc;
   return est < 180 ? 'bullet' : est < 480 ? 'blitz' : est < 1500 ? 'rapid' : 'classical';
 }
+const CLOSED = 'This account is closed, so it can’t play online any more.';
 const FIRST_MOVE_MS = 30000;      // time to make the first move before the game is aborted
 const ABANDON_MS = 30000;         // opponent offline this long: you may claim the win
 const UCI_RE = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
+// The only messages players can send each other: a fixed list, so there is nothing to moderate
+export const SAY = ['hello', 'gl', 'hf', 'nice', 'oops', 'sorry', 'gg', 'wp', 'thanks'];
+const SAY_GAP_MS = 1500, SAY_MAX = 25;
 const newId = (n = 8) => crypto.randomBytes(n).toString('base64url').replace(/[-_]/g, '').slice(0, n);
 const opp = (c) => (c === 'w' ? 'b' : 'w');
 
@@ -70,6 +75,7 @@ export class Lobby {
     on('game:draw', (d) => { if (!user) return { error: 'Log in first.' }; return this.draw(user, d.id, d.action); });
     on('game:claim', (d) => { if (!user) return { error: 'Log in first.' }; return this.claim(user, d.id); });
     on('game:rematch', (d) => { if (!user) return { error: 'Log in first.' }; return this.rematch(user, d.id, d.action); });
+    on('game:say', (d) => { if (!user) return { error: 'Log in first.' }; return this.say(user, d.id, d.key); });
     void needUser;
 
     socket.on('disconnect', () => {
@@ -86,8 +92,21 @@ export class Lobby {
 
   stats() {
     const seeking = {}; for (const [tc, m] of this.queues) seeking[tc] = m.size;
-    let playing = 0; for (const g of this.games.values()) if (g.status === 'active') playing++;
-    return { online: this.io.engine.clientsCount, seeking, games: playing };
+    let playing = 0; const live = [];
+    for (const g of this.games.values()) {
+      if (g.status !== 'active') continue;
+      playing++;
+      // Rated games once both have moved, strongest first. Friend games stay off the list.
+      if (g.rated && g.moves.length >= 2) live.push(g);
+    }
+    live.sort((a, b) => (b.white.rating + b.black.rating) - (a.white.rating + a.black.rating));
+    return { online: this.io.engine.clientsCount, seeking, games: playing, live: live.slice(0, 8).map(g => this.liveRow(g)) };
+  }
+  // A game in the "Live now" list: who plays, the clock, how far it is, how many are watching
+  liveRow(g) {
+    let watchers = 0; const room = this.io.sockets.adapter.rooms.get('g:' + g.id);
+    if (room) for (const sid of room) { const s = this.io.sockets.sockets.get(sid); const u = s && s.data.user; if (!u || (u.id !== g.white.id && u.id !== g.black.id)) watchers++; }
+    return { id: g.id, tc: g.tc, ply: g.moves.length, watchers, white: { name: g.white.name, rating: Math.round(g.white.rating) }, black: { name: g.black.name, rating: Math.round(g.black.rating) } };
   }
   broadcastStats() { this.io.emit('lobby:stats', this.stats()); }
 
@@ -100,6 +119,7 @@ export class Lobby {
   async seek(user, socket, tc) {
     if (!TIME_CONTROLS[tc]) return { error: 'Unknown time control.' };
     if (this.byUser.has(user.id)) return { error: 'You are already in a game.', gameId: this.byUser.get(user.id) };
+    if (await isClosed(user.id)) return { error: CLOSED };
     this.cancelSeek(user.id);
     const r = await this.ratingOf(user.id, categoryOf(tc));
     this.queues.get(tc).set(user.id, { user, socketId: socket.id, rating: r.rating, rd: r.rd, since: Date.now() });
@@ -136,8 +156,9 @@ export class Lobby {
   }
 
   // ---------------- friend challenges ----------------
-  createChallenge(user, socket, tc, color) {
+  async createChallenge(user, socket, tc, color) {
     if (!TIME_CONTROLS[tc]) return { error: 'Unknown time control.' };
+    if (await isClosed(user.id)) return { error: CLOSED };
     if (this.byUser.has(user.id)) return { error: 'You are already in a game.' };
     for (const [code, c] of this.challenges) if (c.user.id === user.id) this.challenges.delete(code);
     const code = newId(8);
@@ -154,6 +175,8 @@ export class Lobby {
     const c = this.challenges.get(String(code));
     if (!c) return { error: 'This challenge has expired or was cancelled.' };
     if (c.user.id === user.id) return { error: 'Send this link to a friend. You can’t accept your own challenge.' };
+    if (await isClosed(user.id)) return { error: CLOSED };
+    if (await isClosed(c.user.id)) { this.challenges.delete(c.code); return { error: 'This challenge has expired or was cancelled.' }; }
     if (this.byUser.has(user.id)) return { error: 'You are already in a game.' };
     if (this.byUser.has(c.user.id)) return { error: `${c.user.name} is busy in another game.` };
     this.challenges.delete(c.code);
@@ -196,7 +219,7 @@ export class Lobby {
     return {
       id: g.id, tc: g.tc, category: g.category, rated: g.rated, moves: g.moves, clocks: this.clockNow(g), clockRunning: g.clockRunning,
       turn: g.chess.turn(), status: g.status, result: g.result, reason: g.reason, drawOffer: g.drawOffer, rematch: g.rematch,
-      white: pub(g.white), black: pub(g.black), you: forUser ? this.colorOf(g, forUser.id) : null, diff: g.diff,
+      white: pub(g.white), black: pub(g.black), you: forUser ? this.colorOf(g, forUser.id) : null, diff: g.diff, said: g.said || [],
       firstMoveDeadline: g.moves.length < 2 && g.status === 'active' ? FIRST_MOVE_MS - (Date.now() - g.turnStart) : null,
     };
   }
@@ -315,6 +338,7 @@ export class Lobby {
     if (!g || !color || g.status === 'active') return { error: 'You can ask for a rematch once the game is over.' };
     if (action === 'decline') { g.rematch = null; this.io.to('g:' + g.id).emit('game:rematch', { id: g.id, rematch: null }); return { ok: true }; }
     if (this.byUser.has(g.white.id) || this.byUser.has(g.black.id)) return { error: 'One of you is already in another game.' };
+    if (await isClosed(g.white.id) || await isClosed(g.black.id)) return { error: 'A rematch isn’t possible with this account.' };
     if (g.rematch === opp(color)) {
       g.rematch = null;
       const ng = await this.startGame({ white: { id: g.black.id, name: g.black.name }, black: { id: g.white.id, name: g.white.name }, tc: g.tc, rated: g.rated });
@@ -323,6 +347,21 @@ export class Lobby {
     }
     g.rematch = color;
     this.io.to('g:' + g.id).emit('game:rematch', { id: g.id, rematch: color });
+    return { ok: true };
+  }
+
+  // A preset message from one of the players, to everyone in the game's room. Also after the game
+  // (finished games stay in memory ten minutes). At most one every 1.5 s and 25 per game per player.
+  say(user, id, key) {
+    const g = this.games.get(String(id)); const color = g && this.colorOf(g, user.id);
+    if (!g || !color) return { error: 'You are not playing in this game.' };
+    if (!SAY.includes(key)) return { error: 'Unknown message.' };
+    const now = Date.now(); g.sayLast = g.sayLast || {}; g.sayCount = g.sayCount || { w: 0, b: 0 };
+    if (now - (g.sayLast[color] || 0) < SAY_GAP_MS) return { error: 'One message at a time.' };
+    if (g.sayCount[color] >= SAY_MAX) return { error: 'That is enough messages for one game.' };
+    g.sayLast[color] = now; g.sayCount[color]++;
+    const m = { color, key, at: now }; g.said = (g.said || []).concat(m).slice(-30);
+    this.io.to('g:' + g.id).emit('game:said', { id: g.id, ...m });
     return { ok: true };
   }
 
@@ -354,6 +393,7 @@ export class Lobby {
     await q(`UPDATE games SET status = $1, result = $2, reason = $3, moves = $4, white_ms = $5, black_ms = $6, white_diff = $7, black_diff = $8, ended_at = now() WHERE id = $9`,
       [g.status, result, reason, g.moves.join(' '), Math.round(g.clocks.w), Math.round(g.clocks.b), diff ? diff.w : null, diff ? diff.b : null, g.id]);
     this.io.to('g:' + g.id).emit('game:end', { id: g.id, status: g.status, result, reason, diff, clocks: { ...g.clocks } });
+    if (g.rated && g.status === 'finished' && this.onFinished) this.onFinished(g);   // the fair-play check (server/fairplay.js)
     this.broadcastStats();
     // keep finished games in memory a while for rematches, then drop them
     setTimeout(() => { if (this.games.get(g.id) === g) this.games.delete(g.id); }, 10 * 60 * 1000).unref();

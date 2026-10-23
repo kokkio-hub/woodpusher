@@ -320,6 +320,7 @@ function renderSettings() {
   makeBoardPreviews();
   $('#setSound').checked = Snd.on;
   $('#setPremove').checked = S.settings.premove !== false;
+  $('#setChat').checked = S.settings.chat !== false;
   document.querySelectorAll('#lookSeg .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.look === (S.settings.look === 'light' ? 'light' : 'dark'))));
   renderUserSection();
 }
@@ -342,4 +343,5 @@ function wireSettings() {
   });
   $('#setSound').addEventListener('change', (e) => { Snd.on = e.target.checked; S.settings.sound = Snd.on; if (Snd.on) Snd.move(); save(); });
   $('#setPremove').addEventListener('change', (e) => { S.settings.premove = e.target.checked; if (!S.settings.premove) clearPremoves(); else renderAll(); save(); });
+  $('#setChat').addEventListener('change', (e) => { S.settings.chat = e.target.checked; renderAll(); save(); });
 }

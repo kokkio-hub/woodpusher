@@ -71,13 +71,13 @@ export function playersRouter() {
   r.get('/leaderboard', async (req, res) => {
     const cat = CATEGORIES.includes(req.query.cat) ? req.query.cat : 'blitz';
     const { rows } = await q(`SELECT u.username, r.rating, r.rd, r.games FROM ratings r JOIN users u ON u.id = r.user_id
-      WHERE r.category = $1 AND r.games > 0 ORDER BY r.rating DESC, r.games DESC, u.username_lower LIMIT 50`, [cat]);
-    const total = (await q('SELECT COUNT(*)::int AS n FROM ratings WHERE category = $1 AND games > 0', [cat])).rows[0].n;
+      WHERE r.category = $1 AND r.games > 0 AND u.closed_at IS NULL ORDER BY r.rating DESC, r.games DESC, u.username_lower LIMIT 50`, [cat]);
+    const total = (await q('SELECT COUNT(*)::int AS n FROM ratings r JOIN users u ON u.id = r.user_id WHERE r.category = $1 AND r.games > 0 AND u.closed_at IS NULL', [cat])).rows[0].n;
     let you = null;
     if (req.session.userId) {
       const mine = (await q('SELECT rating, rd, games FROM ratings WHERE user_id = $1 AND category = $2 AND games > 0', [req.session.userId, cat])).rows[0];
       if (mine) {
-        const ahead = (await q('SELECT COUNT(*)::int AS n FROM ratings WHERE category = $1 AND games > 0 AND rating > $2', [cat, mine.rating])).rows[0].n;
+        const ahead = (await q('SELECT COUNT(*)::int AS n FROM ratings r JOIN users u ON u.id = r.user_id WHERE r.category = $1 AND r.games > 0 AND r.rating > $2 AND u.closed_at IS NULL', [cat, mine.rating])).rows[0].n;
         you = { rank: ahead + 1, rating: Math.round(mine.rating), provisional: provisional(mine.rd), games: mine.games };
       }
     }

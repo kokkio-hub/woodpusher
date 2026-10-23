@@ -24,7 +24,7 @@ function plClose() {
   const m = $('#playerModal'); if (m.hidden) return;
   m.hidden = true; PL.token++;
   if (PL.pushed) { PL.pushed = false; PL.ignorePop = true; history.back(); }
-  else if (/^\/(@\/|leaderboard)/.test(location.pathname)) history.replaceState(null, '', PL.from && !/^\/(@\/|leaderboard)/.test(PL.from) ? PL.from : '/');
+  else if (/^\/(@\/|leaderboard|admin)/.test(location.pathname)) history.replaceState(null, '', PL.from && !/^\/(@\/|leaderboard|admin)/.test(PL.from) ? PL.from : '/');
 }
 async function plOpenProfile(name) {
   if (!plAvailable()) return;
@@ -68,6 +68,8 @@ async function plOpenBoard(cat) {
 function plRender() {
   const el = $('#playerBody');
   if (PL.view === 'board') { el.innerHTML = plBoardHTML(); return; }
+  if (PL.view === 'report') { el.innerHTML = plReportHTML(); return; }
+  if (PL.view === 'admin') { el.innerHTML = plAdminHTML(); return; }
   if (!PL.prof) {
     el.innerHTML = `<h2 class="pl-title" id="plTitle">${esc(PL.name || 'Player')}</h2>${PL.error ? `<p class="err">${esc(PL.error)}</p>` : '<p class="fine"><span class="spinner"></span>Loading the profile…</p>'}`;
     return;
@@ -81,7 +83,8 @@ function plRender() {
   el.innerHTML = `
     <div class="pl-head"><span class="you-ic" aria-hidden="true">${pieceSVG('wK')}</span>
       <div class="pl-who"><h2 class="pl-title" id="plTitle">${esc(p.username)}</h2><p class="fine">${esc(sinceText(p.createdAt))} · ${total} game${total === 1 ? '' : 's'}${me ? ' · <b>this is you</b>' : ''}</p></div>
-      <button class="btn btn-small" data-pl="board">Leaderboard</button></div>
+      <div class="pl-head-btns"><button class="btn btn-small" data-pl="board">Leaderboard</button>${plMe() && !me && !p.closed ? '<button class="btn btn-small" data-pl="report">Report</button>' : ''}</div></div>
+    ${p.closed ? `<p class="offer">${p.closed === 'fairplay' ? 'This account is closed for breaking Woodpusher’s fair-play rules.' : 'This account is closed.'}</p>` : ''}
     <div class="ratings-row pl-cats" role="group" aria-label="Time control">${boxes}</div>
     <p class="fine">A <b>?</b> means the rating is still settling. The three numbers are wins, draws and losses.</p>
     <section class="pl-sec"><span class="field-label" id="plGraphLbl">${plCatLabel(PL.cat)} rating</span><div class="pl-chart" id="plChart"></div></section>
@@ -192,6 +195,85 @@ function plBoardHTML() {
     <p class="fine">Everyone with at least one rated game is listed. A <b>?</b> means the rating is still settling after only a few games.</p>`;
 }
 
+/* ---------------- reporting a player ---------------- */
+const PL_REASONS = [['cheating', 'Uses computer help', 'Plays engine moves, gets outside help during games'], ['behaviour', 'Unsportsmanlike behaviour', 'Lets the clock run down on purpose, leaves lost games, abuses the messages'], ['username', 'Offensive username', ''], ['other', 'Something else', '']];
+function plOpenReport(name, gameId) {
+  if (!plAvailable()) return;
+  if (!plMe()) { toast('Log in to report a player.'); return; }
+  plSetUrl('/@/' + encodeURIComponent(name));
+  PL.token++; PL.view = 'report'; PL.report = { name, gameId: gameId || null, reason: '', note: '', sent: false, busy: false, error: '' };
+  plShow(); plRender();
+}
+function plReportHTML() {
+  const R = PL.report;
+  const head = `<button class="back-link" data-pl="back-profile">← ${esc(R.name)}</button><h2 class="pl-title" id="plTitle">Report ${esc(R.name)}</h2>`;
+  if (R.sent) return head + `<p>Thanks. Your report went to Woodpusher’s admin, who looks at every one. ${esc(R.name)} doesn’t see who sent it.</p><div class="actions"><button class="btn btn-brass" data-pl="back-profile">Back to the profile</button></div>`;
+  return head + `<p class="fine">${R.gameId ? 'About your game together. ' : ''}Only Woodpusher’s admin sees this.</p>
+    <form class="form" id="plReportForm" novalidate><fieldset class="rp-reasons"><legend class="field-label">What happened?</legend>
+      ${PL_REASONS.map(([k, label, sub]) => `<label class="check rp-reason"><input type="radio" name="reason" value="${k}" ${R.reason === k ? 'checked' : ''}><span><b>${esc(label)}</b>${sub ? `<br><span class="fine">${esc(sub)}</span>` : ''}</span></label>`).join('')}</fieldset>
+      <label>Anything to add? <span class="fine">(optional)</span><textarea class="input rp-note" name="note" maxlength="500" rows="3" placeholder="For example which move, or what was said">${esc(R.note)}</textarea></label>
+      ${R.error ? `<p class="err" role="alert">${esc(R.error)}</p>` : ''}
+      <div class="actions"><button class="btn btn-brass" type="submit" ${R.busy ? 'disabled' : ''}>Send report</button><button class="btn" type="button" data-pl="back-profile">Cancel</button></div></form>`;
+}
+async function plSendReport(form) {
+  const R = PL.report; const r = form.querySelector('[name=reason]:checked'); R.note = form.querySelector('[name=note]').value;
+  R.reason = r ? r.value : ''; if (!R.reason) { R.error = 'Pick what happened.'; plRender(); return; }
+  R.busy = true; R.error = ''; plRender();
+  try { await api('/reports', { method: 'POST', body: { username: R.name, gameId: R.gameId, reason: R.reason, note: R.note } }); R.sent = true; }
+  catch (e) { R.error = e.message; }
+  R.busy = false; plRender();
+}
+
+/* ---------------- the admin view: reports and fair play ---------------- */
+// Only for the usernames in the server's ADMIN_USERS variable (server/moderation.js)
+async function plOpenAdmin() {
+  if (!plAvailable()) return;
+  plSetUrl('/admin');
+  const token = ++PL.token; PL.view = 'admin'; PL.admin = null; PL.error = '';
+  plShow(); plRender();
+  try { const d = await api('/admin/overview'); if (token !== PL.token) return; PL.admin = d; }
+  catch (e) { if (token !== PL.token) return; PL.error = e.message; }
+  plRender();
+}
+const pct = (x) => Math.round((x || 0) * 100) + '%';
+function plFpLine(fp, avg) {
+  if (!fp) return '<span class="fine">No checked games yet.</span>';
+  return `<span class="fine">${fp.games} game${fp.games === 1 ? '' : 's'} checked, ${fp.moves} moves: <b>${pct(fp.rate)}</b> Stockfish’s first choice, average loss <b>${Math.round(fp.acpl)}</b> centipawns${avg && avg.checks ? ` (everyone: ${pct(avg.rate)}, ${Math.round(avg.acpl)})` : ''}.${fp.worst ? ` Most engine-like game: ${pct(fp.worst.top1)}, ${Math.round(fp.worst.acpl)} over ${fp.worst.moves} moves <button class="pl-link" data-review="${esc(fp.worst.id)}">review it</button>.` : ''}</span>${fp.flag ? ' <span class="chip ad-flag">Flagged</span>' : ''}`;
+}
+function plCloseControls(name) {
+  return `<span class="ad-close"><select class="select ad-sel" data-close-reason="${esc(name)}" aria-label="Why"><option value="fairplay">Fair play</option><option value="behaviour">Behaviour</option><option value="username">Username</option></select><button class="btn btn-small armable" data-adm="close" data-user="${esc(name)}">Close account</button></span>`;
+}
+function plAdminHTML() {
+  const head = `<h2 class="pl-title" id="plTitle">Reports and fair play</h2><p class="fine">Only you see this. Nothing happens to an account until you act on it.</p>`;
+  if (PL.error) return head + `<p class="err">${esc(PL.error)}</p>`;
+  const d = PL.admin; if (!d) return head + '<p class="fine"><span class="spinner"></span>Loading…</p>';
+  const open = d.reports.filter(r => r.status === 'open'), done = d.reports.filter(r => r.status !== 'open');
+  const card = (r) => `<div class="ad-card${r.status !== 'open' ? ' done' : ''}">
+      <div class="ad-top"><button class="pl-link" data-player="${esc(r.reported)}"><b>${esc(r.reported)}</b></button><span class="chip">${esc(d.reasons[r.reason] || r.reason)}</span>${r.closed ? '<span class="chip">closed</span>' : ''}<span class="fine">from ${esc(r.reporter)} · ${plDate(r.at, true)}${r.status !== 'open' ? ` · ${r.status}` : ''}</span></div>
+      ${r.note ? `<p class="ad-note">${esc(r.note)}</p>` : ''}
+      <div>${plFpLine(r.fp, d.average)}</div>
+      <div class="actions">${r.gameId ? `<button class="btn btn-small" data-review="${esc(r.gameId)}">Review the game</button>` : ''}${r.status === 'open' ? `${r.closed ? '' : plCloseControls(r.reported)}<button class="btn btn-small" data-adm="dismiss" data-report="${r.id}">Nothing wrong</button>` : `<button class="btn btn-small" data-adm="reopen-report" data-report="${r.id}">Open again</button>`}</div></div>`;
+  return head + `
+    <section class="pl-sec"><span class="field-label">Open reports (${open.length})</span>${open.length ? open.map(card).join('') : '<p class="fine">No open reports.</p>'}</section>
+    <section class="pl-sec"><span class="field-label">Flagged by the fair-play check (${d.flagged.length})</span>
+      ${d.flagged.length ? d.flagged.map(f => `<div class="ad-card"><div class="ad-top"><button class="pl-link" data-player="${esc(f.username)}"><b>${esc(f.username)}</b></button></div><div>${plFpLine(f.fp, d.average)}</div><div class="actions">${plCloseControls(f.username)}<button class="btn btn-small" data-adm="clear" data-user="${esc(f.username)}">Looks fine</button></div></div>`).join('') : '<p class="fine">Nobody is flagged.</p>'}
+      <p class="fine">Every finished rated game is checked with Stockfish from move 8 on. A player is flagged when, over their last 20 checked games, at least ${d.flagLines.recent.moves} moves were ${pct(d.flagLines.recent.top1)} or more Stockfish’s first choice with an average loss of ${d.flagLines.recent.acpl} or less; or when one game of ${d.flagLines.single.moves}+ moves reached ${pct(d.flagLines.single.top1)} and ${d.flagLines.single.acpl}. Strong players and short, simple games can come close, so a flag is a reason to look, not proof. “Looks fine” counts only games played after that.</p></section>
+    <section class="pl-sec"><span class="field-label">Closed accounts (${d.closed.length})</span>${d.closed.length ? `<div class="game-list">${d.closed.map(c => `<div class="game-row ad-closed"><span></span><span><button class="pl-link" data-player="${esc(c.username)}">${esc(c.username)}</button><br><span class="meta">${esc(c.reason || '')} · ${plDate(c.at, true)}</span></span><button class="btn btn-small" data-adm="reopen" data-user="${esc(c.username)}">Reopen</button></div>`).join('')}</div>` : '<p class="fine">None.</p>'}</section>
+    ${done.length ? `<section class="pl-sec"><span class="field-label">Handled in the last 30 days (${done.length})</span>${done.map(card).join('')}</section>` : ''}`;
+}
+async function plAdminAction(b) {
+  const a = b.dataset.adm;
+  try {
+    if (a === 'dismiss' || a === 'reopen-report') await api('/admin/reports/' + b.dataset.report, { method: 'POST', body: { action: a === 'dismiss' ? 'dismiss' : 'reopen' } });
+    else if (a === 'close') {
+      const sel = [...document.querySelectorAll('#playerBody [data-close-reason]')].find(x => x.dataset.closeReason === b.dataset.user);
+      await api('/admin/users/' + encodeURIComponent(b.dataset.user), { method: 'POST', body: { action: 'close', reason: sel ? sel.value : 'fairplay' } });
+      toast(`${b.dataset.user}’s account is closed.`);
+    } else await api('/admin/users/' + encodeURIComponent(b.dataset.user), { method: 'POST', body: { action: a } });
+  } catch (e) { toast(e.message); return; }
+  plOpenAdmin();
+}
+
 /* ---------------- wiring ---------------- */
 function plReview(id) {
   if (S.mode === 'play') { toast('Finish or abandon your game first.'); return; }
@@ -214,7 +296,11 @@ function plBoot() {
     if (b.dataset.pl === 'board') { const c = PL.cat; plOpenBoard(c); return; }
     if (b.dataset.pl === 'back' && PL.prof) { plOpenProfile(PL.prof.username); return; }
     if (b.dataset.pl === 'more') { plLoadGames(false); return; }
+    if (b.dataset.pl === 'report' && PL.prof) { plOpenReport(PL.prof.username); return; }
+    if (b.dataset.pl === 'back-profile' && PL.report) { plOpenProfile(PL.report.name); return; }
+    if (b.dataset.adm) { if (b.dataset.adm === 'close') armOrRun(b, 'Close for sure?', () => plAdminAction(b)); else plAdminAction(b); return; }
   });
+  modal.addEventListener('submit', (e) => { if (e.target.id === 'plReportForm') { e.preventDefault(); plSendReport(e.target); } });
   // Escape closes the dialog (and restores the address) before the page's own Escape handling
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) { e.stopImmediatePropagation(); plClose(); } }, true);
   // Back button closes it
@@ -227,14 +313,16 @@ function plBoot() {
   });
   // Buttons elsewhere on the page (lobby, Settings, the online game) that open a profile or the leaderboard
   document.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-open-player], [data-open-board]'); if (!b) return;
+    const b = e.target.closest('[data-open-player], [data-open-board], [data-open-report], [data-open-admin]'); if (!b) return;
     document.querySelectorAll('.modal-back').forEach(m => { if (m.id !== 'playerModal') m.hidden = true; });
-    if (b.dataset.openBoard != null) plOpenBoard(); else plOpenProfile(b.dataset.openPlayer);
+    if (b.dataset.openBoard != null) plOpenBoard(); else if (b.dataset.openAdmin != null) plOpenAdmin();
+    else if (b.dataset.openReport) plOpenReport(b.dataset.openReport, b.dataset.game); else plOpenProfile(b.dataset.openPlayer);
   });
   let rz = null; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (!modal.hidden && PL.view === 'profile' && PL.prof) plDrawChart(); }, 120); });
   // Arriving on a profile or leaderboard address
   const m = location.pathname.match(/^\/@\/([A-Za-z0-9_-]{1,30})\/?$/);
   if (m) { PL.from = '/'; plOpenProfile(m[1]); PL.pushed = false; }
   else if (location.pathname === '/leaderboard') { PL.from = '/'; plOpenBoard(); PL.pushed = false; }
+  else if (location.pathname === '/admin') { PL.from = '/'; plOpenAdmin(); PL.pushed = false; }
 }
-window.WP_PLAYERS = { boot: plBoot, profile: plOpenProfile, board: plOpenBoard, refresh: () => { if (!$('#playerModal').hidden && PL.view === 'profile' && PL.prof) plRender(); } };
+window.WP_PLAYERS = { boot: plBoot, profile: plOpenProfile, board: plOpenBoard, report: plOpenReport, admin: plOpenAdmin, refresh: () => { if (!$('#playerModal').hidden && PL.view === 'profile' && PL.prof) plRender(); } };

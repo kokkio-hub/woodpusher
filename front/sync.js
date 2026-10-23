@@ -14,11 +14,12 @@ const SYNC = Object.assign({ owner: null, mergeId: null },
 function saveSyncState() { try { localStorage.setItem(SYNC_KEY, JSON.stringify({ owner: SYNC.owner, mergeId: SYNC.mergeId })); } catch (e) {} }
 
 const PZ_START = () => ({ rating: 1200, solved: 0, tried: 0, streak: 0, best: 0, seen: {} });
-const progressPayload = () => ({ lines: PROG.lines, pz: PROG.pz, hist: HIST.games });
-const hasLocalProgress = () => PROG.pz.tried > 0 || Object.keys(PROG.lines).length > 0 || HIST.games.length > 0;
+const progressPayload = () => ({ lines: PROG.lines, pz: PROG.pz, hist: HIST.games, mist: PROG.mist, daily: PROG.daily });
+const hasLocalProgress = () => PROG.pz.tried > 0 || Object.keys(PROG.lines).length > 0 || HIST.games.length > 0 || PROG.mist.length > 0 || Object.keys(PROG.daily).length > 0;
 function setLocalProgress(d) {
   PROG.lines = (d && d.lines) || {}; PROG.pz = Object.assign(PZ_START(), (d && d.pz) || {});
   HIST.games = d && Array.isArray(d.hist) ? d.hist : [];
+  PROG.mist = d && Array.isArray(d.mist) ? d.mist : []; PROG.daily = (d && d.daily) || {};
   SYNC.silent = true; try { saveProg(); saveHist(); } finally { SYNC.silent = false; }
   renderUserSection();
   if (S.mode === 'puzzle' || S.mode === 'lesson') renderTrainer();

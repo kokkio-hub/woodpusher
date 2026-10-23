@@ -791,6 +791,7 @@ function renderSettings() {
   makeBoardPreviews();
   $('#setSound').checked = Snd.on;
   $('#setPremove').checked = S.settings.premove !== false;
+  $('#setChat').checked = S.settings.chat !== false;
   document.querySelectorAll('#lookSeg .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.look === (S.settings.look === 'light' ? 'light' : 'dark'))));
   renderUserSection();
 }
@@ -813,6 +814,7 @@ function wireSettings() {
   });
   $('#setSound').addEventListener('change', (e) => { Snd.on = e.target.checked; S.settings.sound = Snd.on; if (Snd.on) Snd.move(); save(); });
   $('#setPremove').addEventListener('change', (e) => { S.settings.premove = e.target.checked; if (!S.settings.premove) clearPremoves(); else renderAll(); save(); });
+  $('#setChat').addEventListener('change', (e) => { S.settings.chat = e.target.checked; renderAll(); save(); });
 }
 
 /* =====================================================================
@@ -848,6 +850,7 @@ function recordStockfishGame() {
 
 // A finished review of one of your own games: how accurately you played.
 function recordReviewAccuracy() {
+  if (typeof collectMistakes === 'function') collectMistakes();   // your mistakes become puzzles (trainer.js)
   const L = S.line, g = S.game, R = S.review;
   if (!L || !g || !R || !R.done) return;
   let color, kind;
@@ -940,7 +943,7 @@ function renderUserSection() {
       <p class="fine">A <b>?</b> means the rating is still a guess. It settles after a handful of rated games.</p></div>`;
   }
   let action = '';
-  if (me) action = `<button class="btn btn-small" data-open-player="${esc(me.username)}">Your profile</button><button class="btn btn-small" data-open-board>Leaderboard</button><button class="btn btn-small" data-user="logout">Log out</button>`;
+  if (me) action = `<button class="btn btn-small" data-open-player="${esc(me.username)}">Your profile</button><button class="btn btn-small" data-open-board>Leaderboard</button>${me.admin ? `<button class="btn btn-small" data-open-admin>Reports and fair play${me.openReports ? ` (${me.openReports} open)` : ''}</button>` : ''}<button class="btn btn-small" data-user="logout">Log out</button>`;
   else if (online && !checking) action = `<button class="btn btn-brass btn-small" data-user="login">Log in or create an account</button>`;
   el.innerHTML = `
     <div class="you"><span class="you-ic" aria-hidden="true">${pieceSVG('wK')}</span><span class="you-text"><span class="you-name">${esc(name)}</span>${sub ? `<span class="you-sub">${esc(sub)}</span>` : ''}</span></div>
@@ -1036,7 +1039,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
-const BOOK_QS = '?v=f6b3254666';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
+const BOOK_QS = '?v=a315e00ba3';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -2531,6 +2534,7 @@ function renderReview() {
   const keys = keyMoments();
   $('#btnPrevKey').disabled = !keys.some(p => p < S.view); $('#btnNextKey').disabled = !keys.some(p => p > S.view);
   renderAutoPlay();
+  if (typeof renderMistakeCta === 'function') renderMistakeCta();
 }
 const shortName = (s) => s.length > 14 ? s.slice(0, 13) + '…' : s;
 // The search depth the review actually reached: "depth 18", or a range when some positions stopped earlier.
@@ -2910,6 +2914,8 @@ const PROG_KEY = 'woodpusher.progress.v1';
 const PROG = (() => { try { return JSON.parse(localStorage.getItem(PROG_KEY)) || {}; } catch (e) { return {}; } })();
 PROG.lines = PROG.lines || {};
 PROG.pz = Object.assign({ rating: 1200, solved: 0, tried: 0, streak: 0, best: 0, seen: {} }, PROG.pz || {});
+PROG.mist = Array.isArray(PROG.mist) ? PROG.mist : [];             // positions from your games to practise (see collectMistakes)
+PROG.daily = PROG.daily && typeof PROG.daily === 'object' ? PROG.daily : {};   // puzzle of the day: date -> 1 solved, 0 tried
 function saveProg() { try { localStorage.setItem(PROG_KEY, JSON.stringify(PROG)); } catch (e) {} if (typeof progressChanged === 'function') progressChanged(); }
 
 const T = { kind: null, timers: [], hint: 0, wrong: null, right: null };
@@ -2955,14 +2961,24 @@ function renderTrainer() { if (T.kind === 'puzzle') renderPuzzlePanel(); else if
 const colorName = (c) => c === 'w' ? 'White' : 'Black';
 
 /* ---------------- Puzzles ---------------- */
+// Puzzles come from three places. On the Woodpusher site: the server's selection from the Lichess
+// puzzle database (server/puzzles.js), fetched about twenty at a time near your rating and kept in this
+// browser, so a batch is there offline too. Your mistakes: positions from your own reviewed games, where
+// you find the better move. And the 94 puzzles built into the page, for offline use and as a fallback.
 const PZDATA = (typeof PUZZLES !== 'undefined' ? PUZZLES : []).map((x, i) => ({ id: 'p' + i, fen: x[0], moves: x[1].split(' '), rating: x[2], themes: x[3] ? x[3].split(',') : [] }));
-const PZ = { p: null, step: 0, color: 'w', state: 'idle', failed: false, usedHint: false, rated: false, delta: null, theme: 'all' };
+const PZ = { p: null, step: 0, color: 'w', state: 'idle', failed: false, usedHint: false, rated: false, delta: null, theme: 'all', check: 0, pick: 0, also: false, run: null };
+const PZQ_KEY = 'woodpusher.pzq.v1', DAILY_KEY = 'woodpusher.daily.v1';
+const PZS = Object.assign({ theme: 'all', list: [] }, (() => { try { return JSON.parse(localStorage.getItem(PZQ_KEY)) || {}; } catch (e) { return {}; } })(), { themes: null, filling: null, daily: null });
+if (!Array.isArray(PZS.list)) PZS.list = [];
+function savePzq() { try { localStorage.setItem(PZQ_KEY, JSON.stringify({ theme: PZS.theme, list: PZS.list.slice(0, 40) })); } catch (e) {} }
+const pzServer = () => !!(PZS.themes && PZS.themes.total > 0);
+const todayUTC = () => new Date().toISOString().slice(0, 10);
 function themeOk(p, th) {
   if (th === 'all') return true;
   if (th === 'Mate in 3+') return p.themes.some(t => /^Mate in [3-9]/.test(t));
   return p.themes.includes(th);
 }
-function pickPuzzle() {
+function pickLocal() {
   const r = PROG.pz.rating;
   let pool = PZDATA.filter(p => themeOk(p, PZ.theme) && !(p.id in PROG.pz.seen) && (!PZ.p || p.id !== PZ.p.id));
   if (!pool.length) pool = PZDATA.filter(p => themeOk(p, PZ.theme) && (!PZ.p || p.id !== PZ.p.id));
@@ -2971,29 +2987,166 @@ function pickPuzzle() {
   const near = pool.slice(0, Math.min(6, pool.length));
   return near[Math.floor(Math.random() * near.length)];
 }
-function openPuzzles() {
-  if (!PZDATA.length) { toast('No puzzles are available.'); return; }
-  startPuzzle(pickPuzzle());
+// A batch from the server near your rating, leaving out the puzzles you have already done
+async function fillQueue() {
+  if (PZS.filling) return PZS.filling;
+  const theme = PZ.theme === 'all' || PZ.theme === 'mine' ? '' : PZ.theme;
+  PZS.filling = (async () => {
+    const ex = [...new Set(Object.keys(PROG.pz.seen).filter(k => k[0] === 'l').slice(-300).concat(PZS.list.map(p => p.id)))].join(',');
+    try {
+      const d = await api(`/puzzles?rating=${PROG.pz.rating}&n=20${theme ? '&theme=' + encodeURIComponent(theme) : ''}&exclude=${encodeURIComponent(ex)}`);
+      if (PZS.theme !== PZ.theme) { PZS.list = []; PZS.theme = PZ.theme; }
+      for (const p of d.puzzles) if (!(p.id in PROG.pz.seen) && !PZS.list.some(x => x.id === p.id)) PZS.list.push(p);
+      savePzq();
+    } catch (e) { /* offline: the saved batch, then the built-in puzzles */ }
+  })();
+  try { await PZS.filling; } finally { PZS.filling = null; }
 }
+async function takeServerPuzzle() {
+  if (PZS.theme !== PZ.theme) { PZS.list = []; PZS.theme = PZ.theme; savePzq(); }
+  PZS.list = PZS.list.filter(p => !(p.id in PROG.pz.seen) && (!PZ.p || p.id !== PZ.p.id));
+  if (!PZS.list.length) await fillQueue(); else if (PZS.list.length < 6) fillQueue();
+  if (!PZS.list.length) return null;
+  const r = PROG.pz.rating; PZS.list.sort((a, b) => Math.abs(a.rating - r) - Math.abs(b.rating - r));
+  const near = PZS.list.slice(0, Math.min(3, PZS.list.length)); const p = near[Math.floor(Math.random() * near.length)];
+  PZS.list = PZS.list.filter(x => x !== p); savePzq();
+  return p;
+}
+async function nextPuzzle() {
+  const tk = ++PZ.pick; let p = null;
+  if (PZ.theme === 'mine') p = pickMistake();
+  else if (pzServer() || PZS.list.length) p = await takeServerPuzzle();
+  if (tk !== PZ.pick) return;
+  if (!p) p = pickLocal();
+  if (p) startPuzzle(p); else toast('No puzzles are available.');
+}
+function openPuzzles() {
+  PZ.run = null; if (PZ.theme === 'mine' && !PROG.mist.length) PZ.theme = 'all';
+  buildThemeSelect(); loadDaily().then(() => { if (S.mode === 'puzzle') renderPuzzlePanel(); });
+  nextPuzzle();
+}
+
+/* ---------------- the puzzle of the day ---------------- */
+// The same puzzle for everyone on a date (UTC), from the server; remembered here for the day
+async function loadDaily() {
+  const day = todayUTC();
+  if (PZS.daily && PZS.daily.day === day) return PZS.daily;
+  try { const c = JSON.parse(localStorage.getItem(DAILY_KEY)); if (c && c.day === day && c.puzzle) return (PZS.daily = c); } catch (e) {}
+  if (typeof io === 'undefined') return null;
+  try { const d = await api('/puzzles/daily'); PZS.daily = d; try { localStorage.setItem(DAILY_KEY, JSON.stringify(d)); } catch (e) {} } catch (e) { return null; }
+  return PZS.daily;
+}
+function dailyStreak() {
+  let n = 0; const d = new Date(); if (PROG.daily[todayUTC()] !== 1) d.setUTCDate(d.getUTCDate() - 1);
+  while (PROG.daily[d.toISOString().slice(0, 10)] === 1) { n++; d.setUTCDate(d.getUTCDate() - 1); }
+  return n;
+}
+function startDaily() { const d = PZS.daily; if (!d || !d.puzzle) return; PZ.run = null; startPuzzle(Object.assign({}, d.puzzle, { daily: d.day })); }
+
+/* ---------------- your mistakes ---------------- */
+// After a review of your own game, your mistakes and blunders become puzzles: the board starts one move
+// earlier, your opponent plays their move, and you look for a better move than the one you played.
+// Stockfish's best move counts, and so does any move that keeps the position about as good.
+function hashStr(t) { let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
+const mistakeGameKey = (L) => 'g' + hashStr(lineKey(L));
+const gameMistakes = (g) => PROG.mist.filter(x => x.g === g).sort((a, b) => a.ply - b.ply);
+const mistakePuzzle = (m) => ({ id: m.id, fen: m.fen, moves: m.moves, rating: null, themes: [], mine: m });
+function collectMistakes() {
+  const R = S.review, L = S.line; const you = typeof youColor === 'function' ? youColor() : null;
+  if (!R || !R.done || !L || !you) { renderMistakeCta(); return; }
+  const g = mistakeGameKey(L); const vs = L.names[you === 'w' ? 'b' : 'w'] || 'your opponent'; const sgn = you === 'w' ? 1 : -1;
+  let added = 0;
+  for (let i = 1; i < L.moves.length; i++) {
+    const c = R.cls[i]; const mv = L.moves[i];
+    if ((c !== 'mistake' && c !== 'blunder') || mv.color !== you || !R.best[i] || R.best[i] === mv.uci || !R.evals[i]) continue;
+    const before = winPct(scoreOf(R.evals[i]) * sgn);
+    if (before < 15) continue;                     // already lost: there was nothing to find
+    const id = 'm' + hashStr(L.fens[i] + R.best[i]);
+    if (PROG.mist.some(x => x.id === id)) continue;
+    const alt = R.alt[i] && R.alt[i].move && Math.abs(winPct(scoreOf(R.alt[i].ev) * sgn) - before) <= 5 ? [R.alt[i].move] : [];
+    PROG.mist.push({ id, g, ply: i, fen: L.fens[i - 1], moves: [L.moves[i - 1].uci, R.best[i]], alt, played: mv.san, label: moveLabel(i), vs: String(vs).slice(0, 40), cls: c, before: Math.round(before), at: Date.now(), solved: 0, tries: 0 });
+    added++;
+  }
+  if (PROG.mist.length > 200) {
+    // keep the newest; solved ones go first
+    PROG.mist.sort((a, b) => ((b.solved > 0) - (a.solved > 0)) || a.at - b.at);
+    PROG.mist = PROG.mist.slice(PROG.mist.length - 200);
+  }
+  if (added) { saveProg(); buildThemeSelect(); }
+  renderMistakeCta();
+}
+function renderMistakeCta() {
+  const el = $('#rvMist'); if (!el) return;
+  const R = S.review, L = S.line; const you = typeof youColor === 'function' ? youColor() : null;
+  const n = R && R.done && L && you && S.mode === 'review' ? gameMistakes(mistakeGameKey(L)).length : 0;
+  if (!n) { el.hidden = true; el.innerHTML = ''; return; }
+  const html = `<button class="btn btn-brass" data-mist>Learn from your mistakes (${n})</button><span class="fine">Play ${n === 1 ? 'that position' : 'those positions'} again and find a better move. You'll also find ${n === 1 ? 'it' : 'them'} under Puzzles, in “Your mistakes”.</span>`;
+  if (el.innerHTML !== html) el.innerHTML = html; el.hidden = false;
+}
+function practiseMistakes(g) {
+  const ids = gameMistakes(g).map(x => x.id); if (!ids.length) return;
+  if (S.mode === 'review') { if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll()); S.parked = snapshot(); }
+  S.engineToken++; if (ENG.main) ENG.main.cancelAll();
+  PZ.theme = 'mine'; PZ.run = { g, ids, i: 0, found: 0, back: S.mode === 'review' };
+  buildThemeSelect(); startPuzzle(pickMistake());
+}
+function pickMistake() {
+  if (PZ.run) { const m = PROG.mist.find(x => x.id === PZ.run.ids[PZ.run.i]); return m ? mistakePuzzle(m) : null; }
+  if (!PROG.mist.length) return null;
+  // Unsolved ones first, then the ones practised longest ago
+  const pool = PROG.mist.filter(x => !PZ.p || x.id !== PZ.p.id); const list = (pool.length ? pool : PROG.mist).slice();
+  list.sort((a, b) => ((a.solved > 0) - (b.solved > 0)) || (a.last || 0) - (b.last || 0) || a.at - b.at);
+  return mistakePuzzle(list[0]);
+}
+function nextInRun() {
+  const run = PZ.run;
+  if (run.i < run.ids.length - 1) { run.i++; startPuzzle(pickMistake()); return; }
+  PZ.run = null;
+  if (run.back && S.parked && S.parked.mode === 'review') { const d = S.parked; S.parked = null; trainerStop(); restore(d); drawBoardCanvas(); return; }
+  PZ.theme = PROG.mist.length ? 'mine' : 'all'; buildThemeSelect(); nextPuzzle();
+}
+// A move other than the expected one in a mistake puzzle: does it keep the position about as good?
+async function checkAlternative(mv) {
+  const p = PZ.p; const token = ++PZ.check;
+  PZ.state = 'checking'; pushTrainerMove(mv);
+  const eng = await ENG.ready;
+  const res = eng ? await eng.search({ fen: S.chess.fen(), depth: 14, movetime: 900, skill: 20, multipv: 1 }) : null;
+  if (token !== PZ.check || PZ.p !== p || PZ.state !== 'checking') return;
+  const info = res && res.info; let good = false;
+  if (info) {
+    const opp = info.mate != null ? (info.mate > 0 ? 10000 - info.mate * 10 : -10000 - info.mate * 10) : Math.round((info.cp || 0) * EVAL_SCALE);
+    good = winPct(-opp) >= (p.mine.before || 50) - 5;
+  }
+  if (good) { T.wrong = null; T.hint = 0; T.right = mv.to; PZ.step = p.moves.length; PZ.also = true; puzzleDone(); return; }
+  T.wrong = mv.to; PZ.failed = true; PZ.state = 'wrong'; renderAll();
+  tLater(() => { T.wrong = null; popTrainerMove(); PZ.state = 'solving'; renderAll(); }, 900);
+}
+
+/* ---------------- playing a puzzle ---------------- */
 function startPuzzle(p, retry = false) {
   clearTimers(); T.kind = 'puzzle'; T.hint = 0; T.wrong = null; T.right = null;
-  PZ.p = p; PZ.step = 0; PZ.state = 'intro'; PZ.usedHint = false;
+  PZ.p = p; PZ.step = 0; PZ.state = 'intro'; PZ.usedHint = false; PZ.also = false; PZ.check++;
   if (!retry) { PZ.failed = false; PZ.rated = false; PZ.delta = null; }
   const solver = p.fen.split(' ')[1] === 'w' ? 'b' : 'w'; PZ.color = solver;
   S.game = null; S.review = null; S.chess = new Chess(p.fen); S.bannerOpen = false;
-  S.line = newLine(p.fen, { w: 'White', b: 'Black' }, { w: solver === 'w' ? 'You' : 'Puzzle', b: solver === 'b' ? 'You' : 'Puzzle' }, { source: 'puzzle' });
+  const opp = p.mine ? p.mine.vs : 'Puzzle';
+  S.line = newLine(p.fen, { w: 'White', b: 'Black' }, { w: solver === 'w' ? 'You' : opp, b: solver === 'b' ? 'You' : opp }, { source: 'puzzle' });
   S.orientation = solver; S.view = 0; S.sel = null; S.legal = [];
   setMode('puzzle'); renderCoords(); drawBoardCanvas(); renderPieces(p.fen, false); renderAll();
   tLater(() => { playUci(p.moves[0]); PZ.step = 1; PZ.state = 'solving'; renderAll(); }, 700);
 }
 function puzzleMove(mv) {
   const exp = PZ.p.moves[PZ.step]; const last = PZ.step === PZ.p.moves.length - 1;
-  if (sameMove(mv, exp) || (last && S.chess.in_checkmate())) {
-    T.wrong = null; T.hint = 0; T.right = mv.to; PZ.step++;
-    PZ.state = PZ.step >= PZ.p.moves.length ? 'finishing' : 'reply';
+  const alt = PZ.p.mine && last && (PZ.p.mine.alt || []).some(u => sameMove(mv, u));
+  if (sameMove(mv, exp) || alt || (last && S.chess.in_checkmate())) {
+    T.wrong = null; T.hint = 0; T.right = mv.to; PZ.step++; if (alt) PZ.also = true;
+    PZ.state = PZ.step >= PZ.p.moves.length || alt ? 'finishing' : 'reply';
+    if (alt) PZ.step = PZ.p.moves.length;
     pushTrainerMove(mv);
     if (PZ.state === 'finishing') { puzzleDone(); return; }
     tLater(() => { T.right = null; playUci(PZ.p.moves[PZ.step]); PZ.step++; PZ.state = 'solving'; renderAll(); }, 500);
+  } else if (PZ.p.mine && last && ENG.main) {
+    checkAlternative(mv);
   } else {
     T.wrong = mv.to; PZ.failed = true; PZ.state = 'wrong'; pushTrainerMove(mv);
     tLater(() => { T.wrong = null; popTrainerMove(); PZ.state = 'solving'; renderAll(); }, 900);
@@ -3001,18 +3154,33 @@ function puzzleMove(mv) {
 }
 function ratePuzzle() {
   if (PZ.rated) return; PZ.rated = true;
-  const win = !PZ.failed && !PZ.usedHint; const r = PROG.pz.rating, pr = PZ.p.rating;
-  const exp = 1 / (1 + Math.pow(10, (pr - r) / 400)); const K = PROG.pz.tried < 10 ? 40 : 20;
-  const d = Math.round(K * ((win ? 1 : 0) - exp));
-  PROG.pz.rating = Math.max(400, r + d); PZ.delta = d; PROG.pz.tried++;
-  if (win) { PROG.pz.solved++; PROG.pz.streak++; PROG.pz.best = Math.max(PROG.pz.best, PROG.pz.streak); } else PROG.pz.streak = 0;
-  PROG.pz.seen[PZ.p.id] = win ? 1 : 0; saveProg();
+  const win = !PZ.failed && !PZ.usedHint; const p = PZ.p;
+  if (p.mine) {
+    // Your own mistakes don't change your puzzle rating
+    const m = PROG.mist.find(x => x.id === p.id);
+    if (m) { m.tries = (m.tries || 0) + 1; if (win) m.solved = (m.solved || 0) + 1; m.last = Date.now(); }
+    if (PZ.run && win) PZ.run.found++;
+    saveProg(); return;
+  }
+  if (p.daily) PROG.daily[p.daily] = Math.max(PROG.daily[p.daily] || 0, win ? 1 : 0);
+  // A Lichess puzzle counts for your rating the first time only
+  const counts = !(p.id[0] === 'l' && p.id in PROG.pz.seen);
+  if (counts) {
+    const r = PROG.pz.rating, pr = p.rating;
+    const exp = 1 / (1 + Math.pow(10, (pr - r) / 400)); const K = PROG.pz.tried < 10 ? 40 : 20;
+    const d = Math.round(K * ((win ? 1 : 0) - exp));
+    PROG.pz.rating = Math.max(400, r + d); PZ.delta = d; PROG.pz.tried++;
+    if (win) { PROG.pz.solved++; PROG.pz.streak++; PROG.pz.best = Math.max(PROG.pz.best, PROG.pz.streak); } else PROG.pz.streak = 0;
+  }
+  PROG.pz.seen[p.id] = win ? 1 : Math.max(0, PROG.pz.seen[p.id] || 0);
+  const ks = Object.keys(PROG.pz.seen); if (ks.length > 15000) for (const k of ks.slice(0, ks.length - 15000)) delete PROG.pz.seen[k];
+  saveProg();
 }
 function puzzleDone() {
   ratePuzzle();
   PZ.state = PZ.failed || PZ.usedHint ? 'solvedHelp' : 'solved';
   if (PZ.state === 'solved') Snd.end();
-  announce(PZ.state === 'solved' ? 'Puzzle solved.' : 'Puzzle finished.');
+  announce(PZ.state === 'solved' ? (PZ.also ? 'That works too. Solved.' : 'Puzzle solved.') : 'Puzzle finished.');
   renderAll();
 }
 function puzzleHint() {
@@ -3021,8 +3189,8 @@ function puzzleHint() {
   T.hint = Math.min(2, T.hint + 1); PZ.usedHint = true; renderAll();
 }
 function puzzleSolution() {
-  if (T.kind !== 'puzzle' || !['solving', 'wrong', 'reply'].includes(PZ.state)) return;
-  clearTimers(); if (PZ.state === 'wrong') { T.wrong = null; popTrainerMove(); }
+  if (T.kind !== 'puzzle' || !['solving', 'wrong', 'reply', 'checking'].includes(PZ.state)) return;
+  clearTimers(); PZ.check++; if (PZ.state === 'wrong' || PZ.state === 'checking') { T.wrong = null; popTrainerMove(); }
   if (PZ.state === 'reply') { T.right = null; playUci(PZ.p.moves[PZ.step]); PZ.step++; }
   if (S.view !== liveIndex()) goTo(liveIndex(), false);
   PZ.failed = true; T.hint = 0; ratePuzzle(); PZ.state = 'showing'; renderAll();
@@ -3032,39 +3200,66 @@ function puzzleSolution() {
   };
   tLater(step, 250);
 }
+function renderDaily() {
+  const el = $('#pzDaily'); if (!el) return;
+  const d = PZS.daily; if (!d || !d.puzzle) { el.hidden = true; return; }
+  const done = PROG.daily[d.day]; const on = PZ.p && PZ.p.daily === d.day; const streak = dailyStreak();
+  el.innerHTML = `<button class="pz-daily-btn${on ? ' on' : ''}" data-daily ${on ? 'aria-current="true"' : ''}><span class="pz-daily-t">Puzzle of the day</span><span class="pz-daily-s">${done === 1 ? '✓ Solved' : done === 0 ? 'Tried' : on ? 'Playing now' : 'Not tried yet'}${streak > 1 ? ` · ${streak} days in a row` : ''}</span></button>`;
+  el.hidden = false;
+}
 function renderPuzzlePanel() {
   const p = PZ.p; if (!p) return;
   $('#pzRating').textContent = PROG.pz.rating;
-  const dl = $('#pzDelta'); if (PZ.delta != null && PZ.rated) { dl.textContent = (PZ.delta >= 0 ? '+' : MINUS) + Math.abs(PZ.delta); dl.className = 'delta ' + (PZ.delta >= 0 ? 'up' : 'down'); } else { dl.textContent = ''; dl.className = 'delta'; }
-  const who = colorName(PZ.color);
+  const dl = $('#pzDelta'); if (PZ.delta != null && PZ.rated && !p.mine) { dl.textContent = (PZ.delta >= 0 ? '+' : MINUS) + Math.abs(PZ.delta); dl.className = 'delta ' + (PZ.delta >= 0 ? 'up' : 'down'); } else { dl.textContent = ''; dl.className = 'delta'; }
+  const who = colorName(PZ.color); const m = p.mine;
+  const findText = m ? `Find a better move for ${who} than ${m.played}.` : `Find the best move for ${who}.`;
   const st = {
-    intro: ['', 'Get ready', `Watch your opponent's move.`],
-    solving: ['', 'Your turn', T.hint === 1 ? 'Hint: move the highlighted piece.' : T.hint === 2 ? 'Hint: play the move shown by the arrow.' : `Find the best move for ${who}.`],
+    intro: ['', 'Get ready', m ? `${m.vs} plays the move before your mistake.` : `Watch your opponent's move.`],
+    solving: ['', 'Your turn', T.hint === 1 ? 'Hint: move the highlighted piece.' : T.hint === 2 ? 'Hint: play the move shown by the arrow.' : findText],
+    checking: ['', 'Checking your move', 'Stockfish is looking at it…'],
     reply: ['good', 'Correct', 'Keep going…'],
-    wrong: ['bad', 'Not this one', 'That move doesn’t work. Try again.'],
+    wrong: ['bad', 'Not this one', m ? 'That move doesn’t keep the position. Try again.' : 'That move doesn’t work. Try again.'],
     finishing: ['good', 'Solved', ''],
-    solved: ['good', 'Solved!', PZ.p.moves.length > 2 ? 'You found the whole combination.' : 'Well spotted.'],
-    solvedHelp: ['good', 'Solved with help', PZ.usedHint ? 'You used a hint, so it doesn’t count for your rating.' : 'You got there after a wrong try.'],
+    solved: ['good', PZ.also ? 'That works too!' : 'Solved!', m ? (PZ.also ? `Stockfish's choice was ${bestSan(p)}, but yours keeps the position just as well.` : `${bestSan(p)} was the move. In the game you played ${m.played}.`) : p.moves.length > 2 ? 'You found the whole combination.' : 'Well spotted.'],
+    solvedHelp: ['good', 'Solved with help', m ? `${bestSan(p)} was the move.` : PZ.usedHint ? 'You used a hint, so it doesn’t count for your rating.' : 'You got there after a wrong try.'],
     showing: ['bad', 'Solution', 'Watch the winning line.'],
     shown: ['bad', 'Solution shown', 'Retry it from the start or move on to the next one.'],
   }[PZ.state] || ['', '', ''];
   $('#pzStatus').className = 'pz-status' + (st[0] ? ' ' + st[0] : '');
   $('#pzStatus').innerHTML = `<span class="pc-ic">${pieceSVG(PZ.color + 'K')}</span><div><b>${esc(st[1])}</b><span>${esc(st[2])}</span></div>`;
   const done = ['solved', 'solvedHelp', 'shown'].includes(PZ.state);
-  $('#pzMeta').innerHTML = `<span>Puzzle rating ${p.rating}</span>` + (done ? p.themes.map(t => `<span class="chip">${esc(t)}</span>`).join('') : '<span>· themes appear once you’re done</span>');
+  let meta;
+  if (m) meta = `<span>From your game against ${esc(m.vs)}: you played ${esc(m.label)} ${esc(m.played)}, a ${m.cls === 'blunder' ? 'blunder' : 'mistake'}.</span>${PZ.run ? `<span class="chip">${PZ.run.i + 1} of ${PZ.run.ids.length}</span>` : ''}`;
+  else meta = `${p.daily ? '<span class="chip">Puzzle of the day</span>' : ''}<span>Puzzle rating ${p.rating}</span>` + (done ? p.themes.map(t => `<span class="chip">${esc(t)}</span>`).join('') + (p.game ? ` <a href="${esc(p.game)}" target="_blank" rel="noopener">The game on Lichess</a>` : '') : '<span>· themes appear once you’re done</span>');
+  $('#pzMeta').innerHTML = meta;
   $('#pzHint').disabled = PZ.state !== 'solving' || T.hint >= 2;
   $('#pzHint').textContent = T.hint === 0 ? 'Hint' : T.hint === 1 ? 'Show move' : 'Hint shown';
-  $('#pzSolution').disabled = !['solving', 'wrong', 'reply'].includes(PZ.state);
+  $('#pzSolution').disabled = !['solving', 'wrong', 'reply', 'checking'].includes(PZ.state);
   $('#pzRetry').hidden = !done;
-  $('#pzNext').classList.toggle('btn-brass', done);
-  const s = PROG.pz; $('#pzStats').textContent = `Solved ${s.solved} of ${s.tried} · Streak ${s.streak} · Best streak ${s.best} · ${PZDATA.length} puzzles in the set`;
+  const next = $('#pzNext'); next.classList.toggle('btn-brass', done);
+  next.textContent = PZ.run ? (PZ.run.i < PZ.run.ids.length - 1 ? 'Next mistake' : PZ.run.back ? 'Back to the review' : 'Next puzzle') : 'Next puzzle';
+  const s = PROG.pz;
+  if (m) { const solved = PROG.mist.filter(x => x.solved > 0).length; $('#pzStats').textContent = `${PROG.mist.length} position${PROG.mist.length === 1 ? '' : 's'} from your games · ${solved} solved · your puzzle rating doesn’t change here`; }
+  else $('#pzStats').textContent = `Solved ${s.solved} of ${s.tried} · Streak ${s.streak} · Best streak ${s.best}` + (p.id[0] === 'l' ? ` · ${(PZS.themes && PZS.themes.total ? PZS.themes.total.toLocaleString('en-GB') + ' puzzles' : 'Puzzles')} from the Lichess puzzle database (CC0)` : ` · ${PZDATA.length} puzzles in the set`);
+  if ($('#pzTheme').value !== PZ.theme) buildThemeSelect();
+  renderDaily();
 }
+function bestSan(p) { try { const c = new Chess(p.fen); c.move({ from: p.moves[0].slice(0, 2), to: p.moves[0].slice(2, 4), promotion: p.moves[0][4] }); const u = p.moves[1]; const mv = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }); return mv ? mv.san : ''; } catch (e) { return ''; } }
 function buildThemeSelect() {
-  const counts = {}; PZDATA.forEach(p => p.themes.forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
-  const m3 = PZDATA.filter(p => themeOk(p, 'Mate in 3+')).length;
-  const order = ['Mate in 1', 'Mate in 2', 'Mate in 3+', 'Back-rank mate', 'Fork', 'Sacrifice', 'Win material', 'Endgame', 'Promotion', 'Knight mate'];
-  const opts = [['all', `All themes (${PZDATA.length})`]];
-  order.forEach(t => { const n = t === 'Mate in 3+' ? m3 : counts[t]; if (n) opts.push([t, `${t} (${n})`]); });
+  const opts = [];
+  if (pzServer()) {
+    opts.push(['all', `All themes (${PZS.themes.total.toLocaleString('en-GB')})`]);
+    if (PROG.mist.length) opts.push(['mine', `Your mistakes (${PROG.mist.length})`]);
+    PZS.themes.themes.forEach(t => opts.push([t.key, `${t.name} (${t.n.toLocaleString('en-GB')})`]));
+  } else {
+    const counts = {}; PZDATA.forEach(p => p.themes.forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
+    const m3 = PZDATA.filter(p => themeOk(p, 'Mate in 3+')).length;
+    const order = ['Mate in 1', 'Mate in 2', 'Mate in 3+', 'Back-rank mate', 'Fork', 'Sacrifice', 'Win material', 'Endgame', 'Promotion', 'Knight mate'];
+    opts.push(['all', `All themes (${PZDATA.length})`]);
+    if (PROG.mist.length) opts.push(['mine', `Your mistakes (${PROG.mist.length})`]);
+    order.forEach(t => { const n = t === 'Mate in 3+' ? m3 : counts[t]; if (n) opts.push([t, `${t} (${n})`]); });
+  }
+  if (!opts.some(o => o[0] === PZ.theme)) PZ.theme = 'all';
   $('#pzTheme').innerHTML = opts.map(([v, l]) => `<option value="${esc(v)}"${v === PZ.theme ? ' selected' : ''}>${esc(l)}</option>`).join('');
 }
 
@@ -3199,8 +3394,12 @@ function wireTrainer() {
   $('#pzHint').addEventListener('click', puzzleHint);
   $('#pzSolution').addEventListener('click', puzzleSolution);
   $('#pzRetry').addEventListener('click', () => startPuzzle(PZ.p, true));
-  $('#pzNext').addEventListener('click', () => startPuzzle(pickPuzzle()));
-  $('#pzTheme').addEventListener('change', (e) => { PZ.theme = e.target.value; startPuzzle(pickPuzzle()); });
+  $('#pzNext').addEventListener('click', () => { if (PZ.run) nextInRun(); else nextPuzzle(); });
+  $('#pzTheme').addEventListener('change', (e) => { PZ.theme = e.target.value; PZ.run = null; nextPuzzle(); });
+  $('#pzDaily').addEventListener('click', (e) => { if (e.target.closest('[data-daily]')) startDaily(); });
+  $('#rvMist').addEventListener('click', (e) => { if (e.target.closest('[data-mist]') && S.line) practiseMistakes(mistakeGameKey(S.line)); });
+  // On the Woodpusher site: the theme list (and so the big puzzle set) from the server
+  if (typeof io !== 'undefined') api('/puzzles/themes').then((d) => { PZS.themes = d; buildThemeSelect(); if (S.mode === 'puzzle') renderPuzzlePanel(); }).catch(() => {});
   $('#lessonPanel').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b || b.disabled) return;
     if (b.dataset.side) { LS.listSide = b.dataset.side; S.orientation = LS.listSide; renderCoords(); drawBoardCanvas(); repositionAll(); renderAll(); return; }
@@ -3239,10 +3438,16 @@ function emitOn(ev, d) {
     ON.sock.timeout(8000).emit(ev, d || {}, (err, r) => res(err ? { error: 'The server didn’t answer. Try again.' } : (r || { ok: true })));
   });
 }
+// Preset messages (server/games.js has the same keys). Which ones are offered depends on the moment.
+const SAY_TEXT = { hello: 'Hello!', gl: 'Good luck!', hf: 'Have fun!', nice: 'Nice move!', oops: 'Oops', sorry: 'Sorry!', gg: 'Good game!', wp: 'Well played!', thanks: 'Thanks!' };
+const SAY_DURING = ['hello', 'gl', 'hf', 'nice', 'oops', 'sorry'], SAY_AFTER = ['gg', 'wp', 'thanks', 'sorry'];
+const chatOn = () => S.settings.chat !== false;
 const ratingText = (p) => p ? `${p.rating}${p.provisional ? '?' : ''}` : '';
 const myRating = (tcId) => { if (!ON.me) return null; const cat = categoryOfTc(tcId); const r = ON.me.ratings[cat]; return r ? `${r.rating}${r.provisional ? '?' : ''}` : '1500?'; };
 function categoryOfTc(id) { const t = tcById(id); const est = t.base + 40 * t.inc; return est < 180 ? 'bullet' : est < 480 ? 'blitz' : est < 1500 ? 'rapid' : 'classical'; }
 const onlineActive = () => !!(ON.game && ON.game.status === 'active' && ON.game.you);
+// Watching someone else's game (from "Live now" or a game link)
+const watching = () => !!(ON.game && !ON.game.you);
 
 function connectSocket() {
   if (ON.sock) { ON.sock.removeAllListeners(); ON.sock.disconnect(); }
@@ -3253,6 +3458,7 @@ function connectSocket() {
   s.on('lobby:stats', (d) => { ON.stats = d; if (S.mode === 'online' && !ON.game) renderOnlinePanel(); });
   s.on('match', (d) => {
     ON.seeking = null; ON.challenge = null; Snd.bell(659.25, .1);
+    if (watching()) emitOn('game:leave', { id: ON.game.id });
     document.querySelectorAll('.modal-back').forEach(m => { m.hidden = true; });
     if (S.mode !== 'online') { const k = parkCurrent(); toast(k === 'bot' ? 'Opponent found! Your bot game is paused. You can resume it after this game.' : 'Opponent found! Your game is starting.'); }
     attention('Opponent found');
@@ -3273,6 +3479,12 @@ function connectSocket() {
     ON.game.rematch = d.rematch;
     if (d.rematch && d.rematch !== ON.game.you) toast(`${oppName()} wants a rematch.`);
     renderAll();
+  });
+  s.on('game:said', (d) => {
+    const g = ON.game; if (!g || d.id !== g.id) return;
+    g.said = (g.said || []).concat({ color: d.color, key: d.key, at: d.at }).slice(-30);
+    if (chatOn() && d.color !== g.you && SAY_TEXT[d.key]) { const n = S.line ? S.line.names[d.color] : ''; if (g.you) toast(`${n}: ${SAY_TEXT[d.key]}`); }
+    renderOnlineIfShown();
   });
   s.on('game:presence', (d) => {
     if (!ON.game || d.id !== ON.game.id) return;
@@ -3302,7 +3514,7 @@ async function loadMyGames() {
 function openOnline(keepGame = false) {
   clearTimers(); T.kind = null;
   if (!keepGame || !ON.game) {
-    if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+    if (ON.game && (ON.game.status !== 'active' || watching())) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
     S.engineToken++; if (ENG.main) ENG.main.cancelAll();
     S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0; S.bannerOpen = false; S.sel = null; S.legal = []; S.premoves = [];
     S.orientation = 'w';
@@ -3316,7 +3528,7 @@ function openOnline(keepGame = false) {
 function leaveOnline(cancel = false) {
   if (cancel && ON.seeking) { emitOn('seek:cancel'); ON.seeking = null; }
   if (cancel && ON.challenge) { emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; }
-  if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  if (ON.game && (ON.game.status !== 'active' || watching())) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
   if (location.pathname !== '/') history.replaceState(null, '', '/');
 }
 
@@ -3363,9 +3575,14 @@ function backToTrainer() {
 let titleBase = null;
 function attention(text) { if (!document.hidden) return; if (titleBase == null) titleBase = document.title; document.title = '♞ ' + text; }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && titleBase != null) { document.title = titleBase; titleBase = null; } });
+// Every mode change (app.html's setMode): leaving the online page stops watching a game
+function onModeChange() {
+  if (S.mode !== 'online' && watching()) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  renderQueueBar();
+}
 function renderQueueBar() {
   const el = $('#queueBar'); if (!el) return;
-  const show = !!(ON.me && (ON.seeking || ON.challenge) && S.mode !== 'online');
+  const show = !!(ON.me && (ON.seeking || ON.challenge) && (S.mode !== 'online' || watching()));
   document.body.classList.toggle('has-qbar', show);
   if (!show) { el.hidden = true; ON.qbarHtml = ''; return; }
   // On a phone the start of the sentence drops, so the clock and the timer stay visible
@@ -3384,7 +3601,7 @@ async function openGame(id, quiet = false) {
 function loadGameState(st) {
   clearTimers(); T.kind = null;
   const you = st.you;
-  ON.game = { id: st.id, you, status: st.status, result: st.result, reason: st.reason, drawOffer: st.drawOffer, rematch: st.rematch, rated: st.rated, tc: st.tc, diff: st.diff,
+  ON.game = { id: st.id, you, status: st.status, result: st.result, reason: st.reason, drawOffer: st.drawOffer, rematch: st.rematch, rated: st.rated, tc: st.tc, diff: st.diff, said: st.said || [],
     white: st.white, black: st.black, presence: { w: st.white.online !== false, b: st.black.online !== false, since: {}, at: performance.now() },
     firstMoveDeadline: st.firstMoveDeadline != null ? performance.now() + st.firstMoveDeadline : null };
   const c = new Chess(); const L = newLine(START_FEN, { w: st.white.name, b: st.black.name }, { w: ratingText(st.white), b: ratingText(st.black) }, { source: 'online', result: st.result || '*', reason: st.reason || '' });
@@ -3527,7 +3744,7 @@ const mmss = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${M
 const panelKey = (n) => n.id ? '#' + CSS.escape(n.id) : n.name ? `[name="${n.name}"]` : n.dataset && n.dataset.act ? `[data-act="${n.dataset.act}"]` : n.dataset && n.dataset.tc ? `[data-tc="${n.dataset.tc}"]` : n.dataset && n.dataset.auth ? `[data-auth="${n.dataset.auth}"]` : null;
 function renderOnlinePanel() {
   const el = $('#onlinePanel'); if (!el || S.mode !== 'online') return;
-  const html = !ON.loaded ? '<p class="fine"><span class="spinner"></span>Connecting…</p>' : !ON.me ? authHTML() : ON.game ? gameHTML() : lobbyHTML();
+  const html = !ON.loaded ? '<p class="fine"><span class="spinner"></span>Connecting…</p>' : ON.game ? gameHTML() : !ON.me ? authHTML() : lobbyHTML();
   if (html === ON.panelHtml && el.firstChild) return;
   const typed = [...el.querySelectorAll('input:not([readonly]):not([type=hidden]), textarea')].map(n => [panelKey(n), n.value]).filter(([k, v]) => k && v);
   const a = document.activeElement; const focusKey = a && a !== el && el.contains(a) ? panelKey(a) : null;
@@ -3535,6 +3752,16 @@ function renderOnlinePanel() {
   el.innerHTML = html; ON.panelHtml = html;
   for (const [k, v] of typed) { const n = el.querySelector(k); if (n && !n.readOnly && !n.value) n.value = v; }
   if (focusKey) { const n = el.querySelector(focusKey); if (n) { n.focus({ preventScroll: true }); if (sel) { try { n.setSelectionRange(sel[0], sel[1]); } catch (e) {} } } }
+}
+// "Live now": rated games in progress, strongest first (from the lobby stats). Anyone can watch, also without an account.
+function liveHTML() {
+  const live = (ON.stats && ON.stats.live) || []; if (!live.length) return '';
+  return `<div><span class="field-label">Live now</span><div class="game-list">${live.map(g => `<button class="game-row live-row" data-watch="${esc(g.id)}" aria-label="Watch ${esc(g.white.name)} against ${esc(g.black.name)}, ${esc(g.tc)}, move ${Math.max(1, Math.ceil(g.ply / 2))}"><span class="live-dot" aria-hidden="true"></span><span aria-hidden="true"><span>${esc(g.white.name)} <span class="meta">(${g.white.rating})</span> vs ${esc(g.black.name)} <span class="meta">(${g.black.rating})</span></span><br><span class="meta">${esc(g.tc)} · move ${Math.max(1, Math.ceil(g.ply / 2))}${g.watchers ? ` · ${g.watchers} watching` : ''}</span></span><span class="imp-go" aria-hidden="true">Watch</span></button>`).join('')}</div></div>`;
+}
+async function watchGame(id) {
+  if (onlineActive()) return;
+  if (ON.game && ON.game.id !== id) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  await openGame(id);
 }
 function authHTML() {
   const reg = ON.authTab === 'register';
@@ -3551,7 +3778,7 @@ function authHTML() {
       ${ON.authError ? `<p class="err" role="alert">${esc(ON.authError)}</p>` : ''}
       <button class="btn btn-brass" type="submit" ${ON.busy ? 'disabled' : ''}>${reg ? 'Create account' : 'Log in'}</button>
     </form>
-    <p class="fine">${reg ? 'Usernames are public. Woodpusher stores only your username, a hashed password, your ratings and your games. No email address needed. ' : ''}<a href="/privacy.html" target="_blank" rel="noopener">Privacy statement</a></p>`;
+    <p class="fine">${reg ? 'Usernames are public. Woodpusher stores only your username, a hashed password, your ratings and your games. No email address needed. ' : ''}<a href="/privacy.html" target="_blank" rel="noopener">Privacy statement</a></p>${liveHTML()}`;
 }
 function lobbyHTML() {
   const me = ON.me; const r = me.ratings || {};
@@ -3573,6 +3800,8 @@ function lobbyHTML() {
     action = `<div class="seek-box"><b>Challenge link ready</b><span class="fine">Send this link to a friend. The game starts as soon as they open it. Friend games are not rated.</span>
       <div class="link-row"><input class="input" id="chalUrl" readonly value="${esc(ON.challenge.url)}"><button class="btn" data-act="copy-link">Copy</button></div>
       <span class="fine"><span class="spinner"></span>Waiting for your friend · ${esc(ON.challenge.tc)}</span>${waitHTML()}<div class="actions"><button class="btn" data-act="cancel-challenge">Cancel</button></div></div>`;
+  } else if (me.closed) {
+    action = `<div class="offer"><b>Your account is closed${me.closed === 'fairplay' ? ' for breaking the fair-play rules' : ''}.</b><span class="fine">You can still play Stockfish, solve puzzles and review games, but not play online. If you think this is a mistake, email <a href="mailto:contact@woodpusher.org">contact@woodpusher.org</a>.</span></div>`;
   } else {
     action = `<div class="actions"><button class="btn btn-brass" data-act="seek" ${ON.busy || !ON.connected ? 'disabled' : ''}>Find an opponent</button><button class="btn" data-act="challenge" ${!ON.connected ? 'disabled' : ''}>Challenge a friend</button></div>`;
   }
@@ -3587,15 +3816,16 @@ function lobbyHTML() {
     <div class="ratings-row">${box('bullet', 'Bullet')}${box('blitz', 'Blitz')}${box('rapid', 'Rapid')}${box('classical', 'Classical')}</div>
     ${!ON.connected ? '<p class="err">Not connected to the server. Reconnecting…</p>' : ''}${paused}
     <div><span class="field-label">Clock · your rating ${esc(myRating(ON.tc) || '')}</span>${tcGridHTML()}</div>
-    ${action}${statsLine()}
+    ${action}${statsLine()}${liveHTML()}
     <div><div class="field-row"><span class="field-label">Your recent games</span>${ON.games && ON.games.length ? `<button class="back-link" data-open-player="${esc(me.username)}">All games and rating graph →</button>` : ''}</div>${games}</div>
-    <div class="account-row"><button class="back-link" data-open-player="${esc(me.username)}">Your profile</button><button class="back-link" data-open-board>Leaderboard</button><button class="back-link" data-act="logout">Log out</button><button class="danger-link" data-act="delete">Delete account</button></div>${del}`;
+    ${me.admin && me.openReports ? `<button class="offer ad-banner" data-open-admin><b>${me.openReports} open report${me.openReports === 1 ? '' : 's'}</b><span class="fine">Look at them under Reports and fair play.</span></button>` : ''}
+    <div class="account-row"><button class="back-link" data-open-player="${esc(me.username)}">Your profile</button><button class="back-link" data-open-board>Leaderboard</button>${me.admin ? '<button class="back-link" data-open-admin>Reports and fair play</button>' : ''}<button class="back-link" data-act="logout">Log out</button><button class="danger-link" data-act="delete">Delete account</button></div>${del}`;
 }
 function gameHTML() {
   const g = ON.game; const L = S.line; const you = g.you; const active = g.status === 'active';
   const oppC = you === 'w' ? 'b' : 'w';
   let body = '';
-  if (!you) body += `<p class="fine">You are watching this game.</p>`;
+  if (!you) body += `<p class="fine">You are watching this game.</p>${active ? '<button class="back-link" data-act="lobby">← Back to the lobby</button>' : ''}`;
   if (active && you) {
     const myTurn = S.chess.turn() === you;
     if (g.firstMoveDeadline && L.moves.length < 2) { const left = g.firstMoveDeadline - performance.now(); if (left > 0) body += `<p class="fine">${myTurn ? `Make your first move within ${Math.ceil(left / 1000)} s, or the game is aborted.` : `Waiting for ${esc(oppName())} to make the first move.`}</p>`; }
@@ -3618,11 +3848,22 @@ function gameHTML() {
       const pk = parkedBotGame();
       if (pk || ON.returnTo) body += `<div class="actions">${pk ? `<button class="btn" data-act="resume-bot">Resume your game against ${esc(parkedBotName(pk))}</button>` : `<button class="btn" data-act="back-trainer">Back to ${ON.returnTo === 'lesson' ? 'the openings' : 'puzzles'}</button>`}</div>`;
     }
-    body += `<button class="back-link" data-act="lobby">← Back to the lobby</button>`;
+    body += `<div class="account-row"><button class="back-link" data-act="lobby">← Back to the lobby</button>${you && g.status === 'finished' ? `<button class="danger-link" data-open-report="${esc(oppName())}" data-game="${esc(g.id)}">Report ${esc(oppName())}</button>` : ''}</div>`;
   }
+  body += chatHTML();
   const pname = (n) => `<button class="pl-link" data-open-player="${esc(n)}">${esc(n)}</button>`;
   const head = `${pname(L.names.w)} vs ${pname(L.names.b)}`;
   return `<div><h2>${active ? 'Live game' : 'Game over'}</h2><p class="card-sub" style="margin:4px 0 0">${head} · ${esc(g.tc)} · ${g.rated ? 'rated' : 'friend game'}</p></div>${body}`;
+}
+// The last few messages, and the ones you can send now. Off in Settings: nothing is shown.
+function chatHTML() {
+  const g = ON.game; if (!g || !chatOn() || !S.line) return '';
+  const said = (g.said || []).slice(-5);
+  const log = said.length ? `<ul class="say-log" aria-label="Messages">${said.map(m => `<li class="${m.color === g.you ? 'me' : ''}"><b>${m.color === g.you ? 'You' : esc(S.line.names[m.color])}:</b> ${esc(SAY_TEXT[m.key] || '')}</li>`).join('')}</ul>` : '';
+  if (!g.you) return log ? `<div class="say-box">${log}</div>` : '';
+  if (g.status === 'aborted') return log ? `<div class="say-box">${log}</div>` : '';
+  const keys = g.status === 'active' ? SAY_DURING : SAY_AFTER;
+  return `<div class="say-box">${log}<div class="say-row" role="group" aria-label="Send a message">${keys.map(k => `<button class="say-chip" data-say="${k}">${SAY_TEXT[k]}</button>`).join('')}</div></div>`;
 }
 function onlineBanner() {
   const el = $('#banner'); const g = ON.game; const L = S.line;
@@ -3653,7 +3894,7 @@ function onlineNote() {
 function wireOnline() {
   $('#btnOnline').hidden = false;
   $('#btnOnline').addEventListener('click', (e) => {
-    if (S.mode === 'online' && ON.game && ON.game.status === 'active') return;
+    if (S.mode === 'online' && onlineActive()) return;
     // A bot game is paused (resume it from the lobby) when you are in the queue, or when it already was paused
     if ((S.mode === 'play' && (ON.seeking || ON.challenge)) || S.mode === 'paused') { parkCurrent(); trainerStop(); openOnline(); return; }
     if (S.mode === 'play' && S.line && S.line.moves.length) { armOrRun(e.currentTarget, 'Leave this game?', () => { abandonGame(); openOnline(); }); return; }
@@ -3679,6 +3920,8 @@ function wireOnline() {
     if (b.dataset.tc) { ON.tc = b.dataset.tc; renderAll(); return; }
     if (b.dataset.review) { reviewOnlineGame(b.dataset.review); return; }
     if (b.dataset.switch) { ON.tc = b.dataset.switch; findOpponent(); return; }
+    if (b.dataset.watch) { watchGame(b.dataset.watch); return; }
+    if (b.dataset.say) { if (ON.game) { const r = await emitOn('game:say', { id: ON.game.id, key: b.dataset.say }); if (r.error) toast(r.error); } return; }
     const g = ON.game; const act = b.dataset.act;
     const send = async (ev, d) => { const r = await emitOn(ev, d); if (r.error) toast(r.error); return r; };
     switch (act) {
@@ -3730,7 +3973,7 @@ window.WP_ONLINE = {
   canMove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() === ON.game.you),
   canPremove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() !== ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
-  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: renderQueueBar,
+  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: onModeChange,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
   login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
   logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },
@@ -3852,11 +4095,12 @@ const SYNC = Object.assign({ owner: null, mergeId: null },
 function saveSyncState() { try { localStorage.setItem(SYNC_KEY, JSON.stringify({ owner: SYNC.owner, mergeId: SYNC.mergeId })); } catch (e) {} }
 
 const PZ_START = () => ({ rating: 1200, solved: 0, tried: 0, streak: 0, best: 0, seen: {} });
-const progressPayload = () => ({ lines: PROG.lines, pz: PROG.pz, hist: HIST.games });
-const hasLocalProgress = () => PROG.pz.tried > 0 || Object.keys(PROG.lines).length > 0 || HIST.games.length > 0;
+const progressPayload = () => ({ lines: PROG.lines, pz: PROG.pz, hist: HIST.games, mist: PROG.mist, daily: PROG.daily });
+const hasLocalProgress = () => PROG.pz.tried > 0 || Object.keys(PROG.lines).length > 0 || HIST.games.length > 0 || PROG.mist.length > 0 || Object.keys(PROG.daily).length > 0;
 function setLocalProgress(d) {
   PROG.lines = (d && d.lines) || {}; PROG.pz = Object.assign(PZ_START(), (d && d.pz) || {});
   HIST.games = d && Array.isArray(d.hist) ? d.hist : [];
+  PROG.mist = d && Array.isArray(d.mist) ? d.mist : []; PROG.daily = (d && d.daily) || {};
   SYNC.silent = true; try { saveProg(); saveHist(); } finally { SYNC.silent = false; }
   renderUserSection();
   if (S.mode === 'puzzle' || S.mode === 'lesson') renderTrainer();
@@ -3945,7 +4189,7 @@ function plClose() {
   const m = $('#playerModal'); if (m.hidden) return;
   m.hidden = true; PL.token++;
   if (PL.pushed) { PL.pushed = false; PL.ignorePop = true; history.back(); }
-  else if (/^\/(@\/|leaderboard)/.test(location.pathname)) history.replaceState(null, '', PL.from && !/^\/(@\/|leaderboard)/.test(PL.from) ? PL.from : '/');
+  else if (/^\/(@\/|leaderboard|admin)/.test(location.pathname)) history.replaceState(null, '', PL.from && !/^\/(@\/|leaderboard|admin)/.test(PL.from) ? PL.from : '/');
 }
 async function plOpenProfile(name) {
   if (!plAvailable()) return;
@@ -3989,6 +4233,8 @@ async function plOpenBoard(cat) {
 function plRender() {
   const el = $('#playerBody');
   if (PL.view === 'board') { el.innerHTML = plBoardHTML(); return; }
+  if (PL.view === 'report') { el.innerHTML = plReportHTML(); return; }
+  if (PL.view === 'admin') { el.innerHTML = plAdminHTML(); return; }
   if (!PL.prof) {
     el.innerHTML = `<h2 class="pl-title" id="plTitle">${esc(PL.name || 'Player')}</h2>${PL.error ? `<p class="err">${esc(PL.error)}</p>` : '<p class="fine"><span class="spinner"></span>Loading the profile…</p>'}`;
     return;
@@ -4002,7 +4248,8 @@ function plRender() {
   el.innerHTML = `
     <div class="pl-head"><span class="you-ic" aria-hidden="true">${pieceSVG('wK')}</span>
       <div class="pl-who"><h2 class="pl-title" id="plTitle">${esc(p.username)}</h2><p class="fine">${esc(sinceText(p.createdAt))} · ${total} game${total === 1 ? '' : 's'}${me ? ' · <b>this is you</b>' : ''}</p></div>
-      <button class="btn btn-small" data-pl="board">Leaderboard</button></div>
+      <div class="pl-head-btns"><button class="btn btn-small" data-pl="board">Leaderboard</button>${plMe() && !me && !p.closed ? '<button class="btn btn-small" data-pl="report">Report</button>' : ''}</div></div>
+    ${p.closed ? `<p class="offer">${p.closed === 'fairplay' ? 'This account is closed for breaking Woodpusher’s fair-play rules.' : 'This account is closed.'}</p>` : ''}
     <div class="ratings-row pl-cats" role="group" aria-label="Time control">${boxes}</div>
     <p class="fine">A <b>?</b> means the rating is still settling. The three numbers are wins, draws and losses.</p>
     <section class="pl-sec"><span class="field-label" id="plGraphLbl">${plCatLabel(PL.cat)} rating</span><div class="pl-chart" id="plChart"></div></section>
@@ -4113,6 +4360,85 @@ function plBoardHTML() {
     <p class="fine">Everyone with at least one rated game is listed. A <b>?</b> means the rating is still settling after only a few games.</p>`;
 }
 
+/* ---------------- reporting a player ---------------- */
+const PL_REASONS = [['cheating', 'Uses computer help', 'Plays engine moves, gets outside help during games'], ['behaviour', 'Unsportsmanlike behaviour', 'Lets the clock run down on purpose, leaves lost games, abuses the messages'], ['username', 'Offensive username', ''], ['other', 'Something else', '']];
+function plOpenReport(name, gameId) {
+  if (!plAvailable()) return;
+  if (!plMe()) { toast('Log in to report a player.'); return; }
+  plSetUrl('/@/' + encodeURIComponent(name));
+  PL.token++; PL.view = 'report'; PL.report = { name, gameId: gameId || null, reason: '', note: '', sent: false, busy: false, error: '' };
+  plShow(); plRender();
+}
+function plReportHTML() {
+  const R = PL.report;
+  const head = `<button class="back-link" data-pl="back-profile">← ${esc(R.name)}</button><h2 class="pl-title" id="plTitle">Report ${esc(R.name)}</h2>`;
+  if (R.sent) return head + `<p>Thanks. Your report went to Woodpusher’s admin, who looks at every one. ${esc(R.name)} doesn’t see who sent it.</p><div class="actions"><button class="btn btn-brass" data-pl="back-profile">Back to the profile</button></div>`;
+  return head + `<p class="fine">${R.gameId ? 'About your game together. ' : ''}Only Woodpusher’s admin sees this.</p>
+    <form class="form" id="plReportForm" novalidate><fieldset class="rp-reasons"><legend class="field-label">What happened?</legend>
+      ${PL_REASONS.map(([k, label, sub]) => `<label class="check rp-reason"><input type="radio" name="reason" value="${k}" ${R.reason === k ? 'checked' : ''}><span><b>${esc(label)}</b>${sub ? `<br><span class="fine">${esc(sub)}</span>` : ''}</span></label>`).join('')}</fieldset>
+      <label>Anything to add? <span class="fine">(optional)</span><textarea class="input rp-note" name="note" maxlength="500" rows="3" placeholder="For example which move, or what was said">${esc(R.note)}</textarea></label>
+      ${R.error ? `<p class="err" role="alert">${esc(R.error)}</p>` : ''}
+      <div class="actions"><button class="btn btn-brass" type="submit" ${R.busy ? 'disabled' : ''}>Send report</button><button class="btn" type="button" data-pl="back-profile">Cancel</button></div></form>`;
+}
+async function plSendReport(form) {
+  const R = PL.report; const r = form.querySelector('[name=reason]:checked'); R.note = form.querySelector('[name=note]').value;
+  R.reason = r ? r.value : ''; if (!R.reason) { R.error = 'Pick what happened.'; plRender(); return; }
+  R.busy = true; R.error = ''; plRender();
+  try { await api('/reports', { method: 'POST', body: { username: R.name, gameId: R.gameId, reason: R.reason, note: R.note } }); R.sent = true; }
+  catch (e) { R.error = e.message; }
+  R.busy = false; plRender();
+}
+
+/* ---------------- the admin view: reports and fair play ---------------- */
+// Only for the usernames in the server's ADMIN_USERS variable (server/moderation.js)
+async function plOpenAdmin() {
+  if (!plAvailable()) return;
+  plSetUrl('/admin');
+  const token = ++PL.token; PL.view = 'admin'; PL.admin = null; PL.error = '';
+  plShow(); plRender();
+  try { const d = await api('/admin/overview'); if (token !== PL.token) return; PL.admin = d; }
+  catch (e) { if (token !== PL.token) return; PL.error = e.message; }
+  plRender();
+}
+const pct = (x) => Math.round((x || 0) * 100) + '%';
+function plFpLine(fp, avg) {
+  if (!fp) return '<span class="fine">No checked games yet.</span>';
+  return `<span class="fine">${fp.games} game${fp.games === 1 ? '' : 's'} checked, ${fp.moves} moves: <b>${pct(fp.rate)}</b> Stockfish’s first choice, average loss <b>${Math.round(fp.acpl)}</b> centipawns${avg && avg.checks ? ` (everyone: ${pct(avg.rate)}, ${Math.round(avg.acpl)})` : ''}.${fp.worst ? ` Most engine-like game: ${pct(fp.worst.top1)}, ${Math.round(fp.worst.acpl)} over ${fp.worst.moves} moves <button class="pl-link" data-review="${esc(fp.worst.id)}">review it</button>.` : ''}</span>${fp.flag ? ' <span class="chip ad-flag">Flagged</span>' : ''}`;
+}
+function plCloseControls(name) {
+  return `<span class="ad-close"><select class="select ad-sel" data-close-reason="${esc(name)}" aria-label="Why"><option value="fairplay">Fair play</option><option value="behaviour">Behaviour</option><option value="username">Username</option></select><button class="btn btn-small armable" data-adm="close" data-user="${esc(name)}">Close account</button></span>`;
+}
+function plAdminHTML() {
+  const head = `<h2 class="pl-title" id="plTitle">Reports and fair play</h2><p class="fine">Only you see this. Nothing happens to an account until you act on it.</p>`;
+  if (PL.error) return head + `<p class="err">${esc(PL.error)}</p>`;
+  const d = PL.admin; if (!d) return head + '<p class="fine"><span class="spinner"></span>Loading…</p>';
+  const open = d.reports.filter(r => r.status === 'open'), done = d.reports.filter(r => r.status !== 'open');
+  const card = (r) => `<div class="ad-card${r.status !== 'open' ? ' done' : ''}">
+      <div class="ad-top"><button class="pl-link" data-player="${esc(r.reported)}"><b>${esc(r.reported)}</b></button><span class="chip">${esc(d.reasons[r.reason] || r.reason)}</span>${r.closed ? '<span class="chip">closed</span>' : ''}<span class="fine">from ${esc(r.reporter)} · ${plDate(r.at, true)}${r.status !== 'open' ? ` · ${r.status}` : ''}</span></div>
+      ${r.note ? `<p class="ad-note">${esc(r.note)}</p>` : ''}
+      <div>${plFpLine(r.fp, d.average)}</div>
+      <div class="actions">${r.gameId ? `<button class="btn btn-small" data-review="${esc(r.gameId)}">Review the game</button>` : ''}${r.status === 'open' ? `${r.closed ? '' : plCloseControls(r.reported)}<button class="btn btn-small" data-adm="dismiss" data-report="${r.id}">Nothing wrong</button>` : `<button class="btn btn-small" data-adm="reopen-report" data-report="${r.id}">Open again</button>`}</div></div>`;
+  return head + `
+    <section class="pl-sec"><span class="field-label">Open reports (${open.length})</span>${open.length ? open.map(card).join('') : '<p class="fine">No open reports.</p>'}</section>
+    <section class="pl-sec"><span class="field-label">Flagged by the fair-play check (${d.flagged.length})</span>
+      ${d.flagged.length ? d.flagged.map(f => `<div class="ad-card"><div class="ad-top"><button class="pl-link" data-player="${esc(f.username)}"><b>${esc(f.username)}</b></button></div><div>${plFpLine(f.fp, d.average)}</div><div class="actions">${plCloseControls(f.username)}<button class="btn btn-small" data-adm="clear" data-user="${esc(f.username)}">Looks fine</button></div></div>`).join('') : '<p class="fine">Nobody is flagged.</p>'}
+      <p class="fine">Every finished rated game is checked with Stockfish from move 8 on. A player is flagged when, over their last 20 checked games, at least ${d.flagLines.recent.moves} moves were ${pct(d.flagLines.recent.top1)} or more Stockfish’s first choice with an average loss of ${d.flagLines.recent.acpl} or less; or when one game of ${d.flagLines.single.moves}+ moves reached ${pct(d.flagLines.single.top1)} and ${d.flagLines.single.acpl}. Strong players and short, simple games can come close, so a flag is a reason to look, not proof. “Looks fine” counts only games played after that.</p></section>
+    <section class="pl-sec"><span class="field-label">Closed accounts (${d.closed.length})</span>${d.closed.length ? `<div class="game-list">${d.closed.map(c => `<div class="game-row ad-closed"><span></span><span><button class="pl-link" data-player="${esc(c.username)}">${esc(c.username)}</button><br><span class="meta">${esc(c.reason || '')} · ${plDate(c.at, true)}</span></span><button class="btn btn-small" data-adm="reopen" data-user="${esc(c.username)}">Reopen</button></div>`).join('')}</div>` : '<p class="fine">None.</p>'}</section>
+    ${done.length ? `<section class="pl-sec"><span class="field-label">Handled in the last 30 days (${done.length})</span>${done.map(card).join('')}</section>` : ''}`;
+}
+async function plAdminAction(b) {
+  const a = b.dataset.adm;
+  try {
+    if (a === 'dismiss' || a === 'reopen-report') await api('/admin/reports/' + b.dataset.report, { method: 'POST', body: { action: a === 'dismiss' ? 'dismiss' : 'reopen' } });
+    else if (a === 'close') {
+      const sel = [...document.querySelectorAll('#playerBody [data-close-reason]')].find(x => x.dataset.closeReason === b.dataset.user);
+      await api('/admin/users/' + encodeURIComponent(b.dataset.user), { method: 'POST', body: { action: 'close', reason: sel ? sel.value : 'fairplay' } });
+      toast(`${b.dataset.user}’s account is closed.`);
+    } else await api('/admin/users/' + encodeURIComponent(b.dataset.user), { method: 'POST', body: { action: a } });
+  } catch (e) { toast(e.message); return; }
+  plOpenAdmin();
+}
+
 /* ---------------- wiring ---------------- */
 function plReview(id) {
   if (S.mode === 'play') { toast('Finish or abandon your game first.'); return; }
@@ -4135,7 +4461,11 @@ function plBoot() {
     if (b.dataset.pl === 'board') { const c = PL.cat; plOpenBoard(c); return; }
     if (b.dataset.pl === 'back' && PL.prof) { plOpenProfile(PL.prof.username); return; }
     if (b.dataset.pl === 'more') { plLoadGames(false); return; }
+    if (b.dataset.pl === 'report' && PL.prof) { plOpenReport(PL.prof.username); return; }
+    if (b.dataset.pl === 'back-profile' && PL.report) { plOpenProfile(PL.report.name); return; }
+    if (b.dataset.adm) { if (b.dataset.adm === 'close') armOrRun(b, 'Close for sure?', () => plAdminAction(b)); else plAdminAction(b); return; }
   });
+  modal.addEventListener('submit', (e) => { if (e.target.id === 'plReportForm') { e.preventDefault(); plSendReport(e.target); } });
   // Escape closes the dialog (and restores the address) before the page's own Escape handling
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) { e.stopImmediatePropagation(); plClose(); } }, true);
   // Back button closes it
@@ -4148,17 +4478,19 @@ function plBoot() {
   });
   // Buttons elsewhere on the page (lobby, Settings, the online game) that open a profile or the leaderboard
   document.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-open-player], [data-open-board]'); if (!b) return;
+    const b = e.target.closest('[data-open-player], [data-open-board], [data-open-report], [data-open-admin]'); if (!b) return;
     document.querySelectorAll('.modal-back').forEach(m => { if (m.id !== 'playerModal') m.hidden = true; });
-    if (b.dataset.openBoard != null) plOpenBoard(); else plOpenProfile(b.dataset.openPlayer);
+    if (b.dataset.openBoard != null) plOpenBoard(); else if (b.dataset.openAdmin != null) plOpenAdmin();
+    else if (b.dataset.openReport) plOpenReport(b.dataset.openReport, b.dataset.game); else plOpenProfile(b.dataset.openPlayer);
   });
   let rz = null; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (!modal.hidden && PL.view === 'profile' && PL.prof) plDrawChart(); }, 120); });
   // Arriving on a profile or leaderboard address
   const m = location.pathname.match(/^\/@\/([A-Za-z0-9_-]{1,30})\/?$/);
   if (m) { PL.from = '/'; plOpenProfile(m[1]); PL.pushed = false; }
   else if (location.pathname === '/leaderboard') { PL.from = '/'; plOpenBoard(); PL.pushed = false; }
+  else if (location.pathname === '/admin') { PL.from = '/'; plOpenAdmin(); PL.pushed = false; }
 }
-window.WP_PLAYERS = { boot: plBoot, profile: plOpenProfile, board: plOpenBoard, refresh: () => { if (!$('#playerModal').hidden && PL.view === 'profile' && PL.prof) plRender(); } };
+window.WP_PLAYERS = { boot: plBoot, profile: plOpenProfile, board: plOpenBoard, report: plOpenReport, admin: plOpenAdmin, refresh: () => { if (!$('#playerModal').hidden && PL.view === 'profile' && PL.prof) plRender(); } };
 
 /* =====================================================================
    Woodpusher as an app: registers the service worker (sw.js), which lets

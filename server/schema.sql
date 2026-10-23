@@ -50,3 +50,55 @@ CREATE TABLE IF NOT EXISTS progress (
   data       JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- A selection of the Lichess puzzle database (CC0), filled on first start (see server/puzzles.js)
+CREATE TABLE IF NOT EXISTS puzzles (
+  id         TEXT PRIMARY KEY,
+  fen        TEXT NOT NULL,
+  moves      TEXT NOT NULL,
+  rating     INT NOT NULL,
+  popularity INT,
+  plays      INT,
+  themes     TEXT[] NOT NULL DEFAULT '{}',
+  game_url   TEXT,
+  opening    TEXT
+);
+CREATE INDEX IF NOT EXISTS puzzles_rating_idx ON puzzles (rating);
+CREATE TABLE IF NOT EXISTS puzzle_daily (
+  day       DATE PRIMARY KEY,
+  puzzle_id TEXT NOT NULL
+);
+
+-- Fair play and reports (see server/moderation.js and server/fairplay.js)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;        -- account closed by the admin
+ALTER TABLE users ADD COLUMN IF NOT EXISTS closed_reason TEXT;           -- fairplay | behaviour | username
+ALTER TABLE users ADD COLUMN IF NOT EXISTS fp_cleared_at TIMESTAMPTZ;    -- the admin looked and found nothing wrong
+CREATE TABLE IF NOT EXISTS reports (
+  id          SERIAL PRIMARY KEY,
+  reporter_id INT REFERENCES users(id) ON DELETE SET NULL,
+  reported_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  game_id     TEXT,
+  reason      TEXT NOT NULL,
+  note        TEXT,
+  status      TEXT NOT NULL DEFAULT 'open',                            -- open | dismissed | done
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  handled_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS reports_status_idx ON reports (status, created_at DESC);
+CREATE TABLE IF NOT EXISTS game_checks (
+  game_id    TEXT NOT NULL,
+  color      CHAR(1) NOT NULL,
+  user_id    INT REFERENCES users(id) ON DELETE CASCADE,
+  moves      INT NOT NULL,
+  top1       INT NOT NULL,
+  acpl       DOUBLE PRECISION NOT NULL,
+  checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (game_id, color)
+);
+CREATE INDEX IF NOT EXISTS game_checks_user_idx ON game_checks (user_id, checked_at DESC);
+-- Small facts the server keeps, such as when the puzzle import finished
+CREATE TABLE IF NOT EXISTS app_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);

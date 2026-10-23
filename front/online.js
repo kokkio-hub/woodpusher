@@ -19,10 +19,16 @@ function emitOn(ev, d) {
     ON.sock.timeout(8000).emit(ev, d || {}, (err, r) => res(err ? { error: 'The server didn’t answer. Try again.' } : (r || { ok: true })));
   });
 }
+// Preset messages (server/games.js has the same keys). Which ones are offered depends on the moment.
+const SAY_TEXT = { hello: 'Hello!', gl: 'Good luck!', hf: 'Have fun!', nice: 'Nice move!', oops: 'Oops', sorry: 'Sorry!', gg: 'Good game!', wp: 'Well played!', thanks: 'Thanks!' };
+const SAY_DURING = ['hello', 'gl', 'hf', 'nice', 'oops', 'sorry'], SAY_AFTER = ['gg', 'wp', 'thanks', 'sorry'];
+const chatOn = () => S.settings.chat !== false;
 const ratingText = (p) => p ? `${p.rating}${p.provisional ? '?' : ''}` : '';
 const myRating = (tcId) => { if (!ON.me) return null; const cat = categoryOfTc(tcId); const r = ON.me.ratings[cat]; return r ? `${r.rating}${r.provisional ? '?' : ''}` : '1500?'; };
 function categoryOfTc(id) { const t = tcById(id); const est = t.base + 40 * t.inc; return est < 180 ? 'bullet' : est < 480 ? 'blitz' : est < 1500 ? 'rapid' : 'classical'; }
 const onlineActive = () => !!(ON.game && ON.game.status === 'active' && ON.game.you);
+// Watching someone else's game (from "Live now" or a game link)
+const watching = () => !!(ON.game && !ON.game.you);
 
 function connectSocket() {
   if (ON.sock) { ON.sock.removeAllListeners(); ON.sock.disconnect(); }
@@ -33,6 +39,7 @@ function connectSocket() {
   s.on('lobby:stats', (d) => { ON.stats = d; if (S.mode === 'online' && !ON.game) renderOnlinePanel(); });
   s.on('match', (d) => {
     ON.seeking = null; ON.challenge = null; Snd.bell(659.25, .1);
+    if (watching()) emitOn('game:leave', { id: ON.game.id });
     document.querySelectorAll('.modal-back').forEach(m => { m.hidden = true; });
     if (S.mode !== 'online') { const k = parkCurrent(); toast(k === 'bot' ? 'Opponent found! Your bot game is paused. You can resume it after this game.' : 'Opponent found! Your game is starting.'); }
     attention('Opponent found');
@@ -53,6 +60,12 @@ function connectSocket() {
     ON.game.rematch = d.rematch;
     if (d.rematch && d.rematch !== ON.game.you) toast(`${oppName()} wants a rematch.`);
     renderAll();
+  });
+  s.on('game:said', (d) => {
+    const g = ON.game; if (!g || d.id !== g.id) return;
+    g.said = (g.said || []).concat({ color: d.color, key: d.key, at: d.at }).slice(-30);
+    if (chatOn() && d.color !== g.you && SAY_TEXT[d.key]) { const n = S.line ? S.line.names[d.color] : ''; if (g.you) toast(`${n}: ${SAY_TEXT[d.key]}`); }
+    renderOnlineIfShown();
   });
   s.on('game:presence', (d) => {
     if (!ON.game || d.id !== ON.game.id) return;
@@ -82,7 +95,7 @@ async function loadMyGames() {
 function openOnline(keepGame = false) {
   clearTimers(); T.kind = null;
   if (!keepGame || !ON.game) {
-    if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+    if (ON.game && (ON.game.status !== 'active' || watching())) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
     S.engineToken++; if (ENG.main) ENG.main.cancelAll();
     S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0; S.bannerOpen = false; S.sel = null; S.legal = []; S.premoves = [];
     S.orientation = 'w';
@@ -96,7 +109,7 @@ function openOnline(keepGame = false) {
 function leaveOnline(cancel = false) {
   if (cancel && ON.seeking) { emitOn('seek:cancel'); ON.seeking = null; }
   if (cancel && ON.challenge) { emitOn('challenge:cancel', { code: ON.challenge.code }); ON.challenge = null; }
-  if (ON.game && ON.game.status !== 'active') { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  if (ON.game && (ON.game.status !== 'active' || watching())) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
   if (location.pathname !== '/') history.replaceState(null, '', '/');
 }
 
@@ -143,9 +156,14 @@ function backToTrainer() {
 let titleBase = null;
 function attention(text) { if (!document.hidden) return; if (titleBase == null) titleBase = document.title; document.title = '♞ ' + text; }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && titleBase != null) { document.title = titleBase; titleBase = null; } });
+// Every mode change (app.html's setMode): leaving the online page stops watching a game
+function onModeChange() {
+  if (S.mode !== 'online' && watching()) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  renderQueueBar();
+}
 function renderQueueBar() {
   const el = $('#queueBar'); if (!el) return;
-  const show = !!(ON.me && (ON.seeking || ON.challenge) && S.mode !== 'online');
+  const show = !!(ON.me && (ON.seeking || ON.challenge) && (S.mode !== 'online' || watching()));
   document.body.classList.toggle('has-qbar', show);
   if (!show) { el.hidden = true; ON.qbarHtml = ''; return; }
   // On a phone the start of the sentence drops, so the clock and the timer stay visible
@@ -164,7 +182,7 @@ async function openGame(id, quiet = false) {
 function loadGameState(st) {
   clearTimers(); T.kind = null;
   const you = st.you;
-  ON.game = { id: st.id, you, status: st.status, result: st.result, reason: st.reason, drawOffer: st.drawOffer, rematch: st.rematch, rated: st.rated, tc: st.tc, diff: st.diff,
+  ON.game = { id: st.id, you, status: st.status, result: st.result, reason: st.reason, drawOffer: st.drawOffer, rematch: st.rematch, rated: st.rated, tc: st.tc, diff: st.diff, said: st.said || [],
     white: st.white, black: st.black, presence: { w: st.white.online !== false, b: st.black.online !== false, since: {}, at: performance.now() },
     firstMoveDeadline: st.firstMoveDeadline != null ? performance.now() + st.firstMoveDeadline : null };
   const c = new Chess(); const L = newLine(START_FEN, { w: st.white.name, b: st.black.name }, { w: ratingText(st.white), b: ratingText(st.black) }, { source: 'online', result: st.result || '*', reason: st.reason || '' });
@@ -307,7 +325,7 @@ const mmss = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${M
 const panelKey = (n) => n.id ? '#' + CSS.escape(n.id) : n.name ? `[name="${n.name}"]` : n.dataset && n.dataset.act ? `[data-act="${n.dataset.act}"]` : n.dataset && n.dataset.tc ? `[data-tc="${n.dataset.tc}"]` : n.dataset && n.dataset.auth ? `[data-auth="${n.dataset.auth}"]` : null;
 function renderOnlinePanel() {
   const el = $('#onlinePanel'); if (!el || S.mode !== 'online') return;
-  const html = !ON.loaded ? '<p class="fine"><span class="spinner"></span>Connecting…</p>' : !ON.me ? authHTML() : ON.game ? gameHTML() : lobbyHTML();
+  const html = !ON.loaded ? '<p class="fine"><span class="spinner"></span>Connecting…</p>' : ON.game ? gameHTML() : !ON.me ? authHTML() : lobbyHTML();
   if (html === ON.panelHtml && el.firstChild) return;
   const typed = [...el.querySelectorAll('input:not([readonly]):not([type=hidden]), textarea')].map(n => [panelKey(n), n.value]).filter(([k, v]) => k && v);
   const a = document.activeElement; const focusKey = a && a !== el && el.contains(a) ? panelKey(a) : null;
@@ -315,6 +333,16 @@ function renderOnlinePanel() {
   el.innerHTML = html; ON.panelHtml = html;
   for (const [k, v] of typed) { const n = el.querySelector(k); if (n && !n.readOnly && !n.value) n.value = v; }
   if (focusKey) { const n = el.querySelector(focusKey); if (n) { n.focus({ preventScroll: true }); if (sel) { try { n.setSelectionRange(sel[0], sel[1]); } catch (e) {} } } }
+}
+// "Live now": rated games in progress, strongest first (from the lobby stats). Anyone can watch, also without an account.
+function liveHTML() {
+  const live = (ON.stats && ON.stats.live) || []; if (!live.length) return '';
+  return `<div><span class="field-label">Live now</span><div class="game-list">${live.map(g => `<button class="game-row live-row" data-watch="${esc(g.id)}" aria-label="Watch ${esc(g.white.name)} against ${esc(g.black.name)}, ${esc(g.tc)}, move ${Math.max(1, Math.ceil(g.ply / 2))}"><span class="live-dot" aria-hidden="true"></span><span aria-hidden="true"><span>${esc(g.white.name)} <span class="meta">(${g.white.rating})</span> vs ${esc(g.black.name)} <span class="meta">(${g.black.rating})</span></span><br><span class="meta">${esc(g.tc)} · move ${Math.max(1, Math.ceil(g.ply / 2))}${g.watchers ? ` · ${g.watchers} watching` : ''}</span></span><span class="imp-go" aria-hidden="true">Watch</span></button>`).join('')}</div></div>`;
+}
+async function watchGame(id) {
+  if (onlineActive()) return;
+  if (ON.game && ON.game.id !== id) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
+  await openGame(id);
 }
 function authHTML() {
   const reg = ON.authTab === 'register';
@@ -331,7 +359,7 @@ function authHTML() {
       ${ON.authError ? `<p class="err" role="alert">${esc(ON.authError)}</p>` : ''}
       <button class="btn btn-brass" type="submit" ${ON.busy ? 'disabled' : ''}>${reg ? 'Create account' : 'Log in'}</button>
     </form>
-    <p class="fine">${reg ? 'Usernames are public. Woodpusher stores only your username, a hashed password, your ratings and your games. No email address needed. ' : ''}<a href="/privacy.html" target="_blank" rel="noopener">Privacy statement</a></p>`;
+    <p class="fine">${reg ? 'Usernames are public. Woodpusher stores only your username, a hashed password, your ratings and your games. No email address needed. ' : ''}<a href="/privacy.html" target="_blank" rel="noopener">Privacy statement</a></p>${liveHTML()}`;
 }
 function lobbyHTML() {
   const me = ON.me; const r = me.ratings || {};
@@ -353,6 +381,8 @@ function lobbyHTML() {
     action = `<div class="seek-box"><b>Challenge link ready</b><span class="fine">Send this link to a friend. The game starts as soon as they open it. Friend games are not rated.</span>
       <div class="link-row"><input class="input" id="chalUrl" readonly value="${esc(ON.challenge.url)}"><button class="btn" data-act="copy-link">Copy</button></div>
       <span class="fine"><span class="spinner"></span>Waiting for your friend · ${esc(ON.challenge.tc)}</span>${waitHTML()}<div class="actions"><button class="btn" data-act="cancel-challenge">Cancel</button></div></div>`;
+  } else if (me.closed) {
+    action = `<div class="offer"><b>Your account is closed${me.closed === 'fairplay' ? ' for breaking the fair-play rules' : ''}.</b><span class="fine">You can still play Stockfish, solve puzzles and review games, but not play online. If you think this is a mistake, email <a href="mailto:contact@woodpusher.org">contact@woodpusher.org</a>.</span></div>`;
   } else {
     action = `<div class="actions"><button class="btn btn-brass" data-act="seek" ${ON.busy || !ON.connected ? 'disabled' : ''}>Find an opponent</button><button class="btn" data-act="challenge" ${!ON.connected ? 'disabled' : ''}>Challenge a friend</button></div>`;
   }
@@ -367,15 +397,16 @@ function lobbyHTML() {
     <div class="ratings-row">${box('bullet', 'Bullet')}${box('blitz', 'Blitz')}${box('rapid', 'Rapid')}${box('classical', 'Classical')}</div>
     ${!ON.connected ? '<p class="err">Not connected to the server. Reconnecting…</p>' : ''}${paused}
     <div><span class="field-label">Clock · your rating ${esc(myRating(ON.tc) || '')}</span>${tcGridHTML()}</div>
-    ${action}${statsLine()}
+    ${action}${statsLine()}${liveHTML()}
     <div><div class="field-row"><span class="field-label">Your recent games</span>${ON.games && ON.games.length ? `<button class="back-link" data-open-player="${esc(me.username)}">All games and rating graph →</button>` : ''}</div>${games}</div>
-    <div class="account-row"><button class="back-link" data-open-player="${esc(me.username)}">Your profile</button><button class="back-link" data-open-board>Leaderboard</button><button class="back-link" data-act="logout">Log out</button><button class="danger-link" data-act="delete">Delete account</button></div>${del}`;
+    ${me.admin && me.openReports ? `<button class="offer ad-banner" data-open-admin><b>${me.openReports} open report${me.openReports === 1 ? '' : 's'}</b><span class="fine">Look at them under Reports and fair play.</span></button>` : ''}
+    <div class="account-row"><button class="back-link" data-open-player="${esc(me.username)}">Your profile</button><button class="back-link" data-open-board>Leaderboard</button>${me.admin ? '<button class="back-link" data-open-admin>Reports and fair play</button>' : ''}<button class="back-link" data-act="logout">Log out</button><button class="danger-link" data-act="delete">Delete account</button></div>${del}`;
 }
 function gameHTML() {
   const g = ON.game; const L = S.line; const you = g.you; const active = g.status === 'active';
   const oppC = you === 'w' ? 'b' : 'w';
   let body = '';
-  if (!you) body += `<p class="fine">You are watching this game.</p>`;
+  if (!you) body += `<p class="fine">You are watching this game.</p>${active ? '<button class="back-link" data-act="lobby">← Back to the lobby</button>' : ''}`;
   if (active && you) {
     const myTurn = S.chess.turn() === you;
     if (g.firstMoveDeadline && L.moves.length < 2) { const left = g.firstMoveDeadline - performance.now(); if (left > 0) body += `<p class="fine">${myTurn ? `Make your first move within ${Math.ceil(left / 1000)} s, or the game is aborted.` : `Waiting for ${esc(oppName())} to make the first move.`}</p>`; }
@@ -398,11 +429,22 @@ function gameHTML() {
       const pk = parkedBotGame();
       if (pk || ON.returnTo) body += `<div class="actions">${pk ? `<button class="btn" data-act="resume-bot">Resume your game against ${esc(parkedBotName(pk))}</button>` : `<button class="btn" data-act="back-trainer">Back to ${ON.returnTo === 'lesson' ? 'the openings' : 'puzzles'}</button>`}</div>`;
     }
-    body += `<button class="back-link" data-act="lobby">← Back to the lobby</button>`;
+    body += `<div class="account-row"><button class="back-link" data-act="lobby">← Back to the lobby</button>${you && g.status === 'finished' ? `<button class="danger-link" data-open-report="${esc(oppName())}" data-game="${esc(g.id)}">Report ${esc(oppName())}</button>` : ''}</div>`;
   }
+  body += chatHTML();
   const pname = (n) => `<button class="pl-link" data-open-player="${esc(n)}">${esc(n)}</button>`;
   const head = `${pname(L.names.w)} vs ${pname(L.names.b)}`;
   return `<div><h2>${active ? 'Live game' : 'Game over'}</h2><p class="card-sub" style="margin:4px 0 0">${head} · ${esc(g.tc)} · ${g.rated ? 'rated' : 'friend game'}</p></div>${body}`;
+}
+// The last few messages, and the ones you can send now. Off in Settings: nothing is shown.
+function chatHTML() {
+  const g = ON.game; if (!g || !chatOn() || !S.line) return '';
+  const said = (g.said || []).slice(-5);
+  const log = said.length ? `<ul class="say-log" aria-label="Messages">${said.map(m => `<li class="${m.color === g.you ? 'me' : ''}"><b>${m.color === g.you ? 'You' : esc(S.line.names[m.color])}:</b> ${esc(SAY_TEXT[m.key] || '')}</li>`).join('')}</ul>` : '';
+  if (!g.you) return log ? `<div class="say-box">${log}</div>` : '';
+  if (g.status === 'aborted') return log ? `<div class="say-box">${log}</div>` : '';
+  const keys = g.status === 'active' ? SAY_DURING : SAY_AFTER;
+  return `<div class="say-box">${log}<div class="say-row" role="group" aria-label="Send a message">${keys.map(k => `<button class="say-chip" data-say="${k}">${SAY_TEXT[k]}</button>`).join('')}</div></div>`;
 }
 function onlineBanner() {
   const el = $('#banner'); const g = ON.game; const L = S.line;
@@ -433,7 +475,7 @@ function onlineNote() {
 function wireOnline() {
   $('#btnOnline').hidden = false;
   $('#btnOnline').addEventListener('click', (e) => {
-    if (S.mode === 'online' && ON.game && ON.game.status === 'active') return;
+    if (S.mode === 'online' && onlineActive()) return;
     // A bot game is paused (resume it from the lobby) when you are in the queue, or when it already was paused
     if ((S.mode === 'play' && (ON.seeking || ON.challenge)) || S.mode === 'paused') { parkCurrent(); trainerStop(); openOnline(); return; }
     if (S.mode === 'play' && S.line && S.line.moves.length) { armOrRun(e.currentTarget, 'Leave this game?', () => { abandonGame(); openOnline(); }); return; }
@@ -459,6 +501,8 @@ function wireOnline() {
     if (b.dataset.tc) { ON.tc = b.dataset.tc; renderAll(); return; }
     if (b.dataset.review) { reviewOnlineGame(b.dataset.review); return; }
     if (b.dataset.switch) { ON.tc = b.dataset.switch; findOpponent(); return; }
+    if (b.dataset.watch) { watchGame(b.dataset.watch); return; }
+    if (b.dataset.say) { if (ON.game) { const r = await emitOn('game:say', { id: ON.game.id, key: b.dataset.say }); if (r.error) toast(r.error); } return; }
     const g = ON.game; const act = b.dataset.act;
     const send = async (ev, d) => { const r = await emitOn(ev, d); if (r.error) toast(r.error); return r; };
     switch (act) {
@@ -510,7 +554,7 @@ window.WP_ONLINE = {
   canMove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() === ON.game.you),
   canPremove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() !== ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
-  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: renderQueueBar,
+  leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: onModeChange,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
   login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
   logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },

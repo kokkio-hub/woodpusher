@@ -32,8 +32,25 @@ function cleanRecord(x) {
     key: str(x.key, 6000), acc,
   };
 }
+const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
+// Positions from your own games to practise (front/trainer.js, collectMistakes)
+function cleanMistake(x) {
+  x = obj(x);
+  const id = str(x.id, 30); if (!id || !/^m\w+$/.test(id)) return null;
+  const moves = Array.isArray(x.moves) ? x.moves.filter(u => typeof u === 'string' && UCI.test(u)) : [];
+  const fen = str(x.fen, 100); if (!fen || moves.length !== 2) return null;
+  return {
+    id, g: str(x.g, 20) || '', ply: int(x.ply, 0, 2000), fen, moves, alt: (Array.isArray(x.alt) ? x.alt : []).filter(u => typeof u === 'string' && UCI.test(u)).slice(0, 3),
+    played: str(x.played, 12) || '', label: str(x.label, 12) || '', vs: str(x.vs, 40) || '', cls: x.cls === 'blunder' ? 'blunder' : 'mistake',
+    before: int(x.before, 0, 100, 50), at: int(x.at, 0, 4102444800000), solved: int(x.solved, 0, 1e6), tries: int(x.tries, 0, 1e6), last: x.last == null ? null : int(x.last, 0, 4102444800000),
+  };
+}
+function cleanDaily(d) { const out = {}; let n = 0; for (const [k, v] of Object.entries(obj(d))) { if (++n > 800) break; if (/^\d{4}-\d{2}-\d{2}$/.test(k)) out[k] = v === 1 ? 1 : 0; } return out; }
 function cleanHist(h) { return (Array.isArray(h) ? h.slice(0, 1000) : []).map(cleanRecord).filter(Boolean); }
-export function cleanProgress(d) { d = obj(d); return { lines: cleanLines(d.lines), pz: cleanPz(d.pz), hist: cleanHist(d.hist) }; }
+export function cleanProgress(d) {
+  d = obj(d);
+  return { lines: cleanLines(d.lines), pz: cleanPz(d.pz), hist: cleanHist(d.hist), mist: (Array.isArray(d.mist) ? d.mist.slice(0, 400) : []).map(cleanMistake).filter(Boolean), daily: cleanDaily(d.daily) };
+}
 
 // sum: the incoming copy is progress made before logging in, so its puzzle counts are added on top.
 // Otherwise the copy with more puzzle attempts is the more recent one for the counters, and solved
@@ -57,7 +74,14 @@ export function mergeProgress(current, incoming, { sum = false } = {}) {
     byId.set(x.id, m);
   }
   const hist = [...byId.values()].sort((x, y) => y.at - x.at).slice(0, HIST_MAX);
-  return { lines, pz, hist };
+  // Mistakes: combined by id, keeping the higher counts; at most 200, the newest
+  const mist = new Map();
+  for (const x of [...a.mist, ...b.mist]) {
+    const o = mist.get(x.id);
+    mist.set(x.id, o ? { ...o, ...x, solved: Math.max(o.solved, x.solved), tries: Math.max(o.tries, x.tries), last: Math.max(o.last || 0, x.last || 0) || null } : x);
+  }
+  const daily = { ...a.daily }; for (const [k, v] of Object.entries(b.daily)) daily[k] = Math.max(daily[k] ?? 0, v);
+  return { lines, pz, hist, mist: [...mist.values()].sort((x, y) => x.at - y.at).slice(-200), daily };
 }
 
 export function progressRouter() {

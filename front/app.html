@@ -656,6 +656,40 @@ body.has-qbar { padding-bottom: 66px; }
 body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
 .wait-do, .wait-alt { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
 .wait-do .field-label { margin-bottom: 0; }
+/* "Live now" in the lobby */
+.live-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c-blunder); justify-self: center; box-shadow: 0 0 0 0 rgba(201,57,46,.5); animation: livepulse 1.8s ease-out infinite; }
+@keyframes livepulse { 0% { box-shadow: 0 0 0 0 rgba(201,57,46,.45); } 70% { box-shadow: 0 0 0 7px rgba(201,57,46,0); } 100% { box-shadow: 0 0 0 0 rgba(201,57,46,0); } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.live-row:hover .imp-go { text-decoration: underline; }
+/* preset messages in online games */
+.say-box { display: flex; flex-direction: column; gap: 8px; }
+.say-log { list-style: none; margin: 0; padding: 8px 10px; border-radius: 6px; background: rgba(var(--well), calc(.18 * var(--well-k))); border: 1px solid rgba(var(--line),.2); font-size: 14.5px; display: flex; flex-direction: column; gap: 2px; }
+.say-log li.me { color: var(--ivory-dim); }
+.say-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.say-chip { font: 600 13.5px var(--f-body); padding: 6px 11px; border-radius: 999px; border: 1px solid rgba(var(--line),.45); background: rgba(var(--well), calc(.2 * var(--well-k))); color: var(--ivory); cursor: pointer; }
+.say-chip:hover { border-color: var(--brass); }
+/* puzzle of the day, and practising your mistakes after a review */
+.pz-daily-btn { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(var(--line),.45); background: rgba(var(--well), calc(.2 * var(--well-k))); color: var(--ivory); cursor: pointer; font: inherit; text-align: left; }
+.pz-daily-btn:hover { border-color: var(--brass); }
+.pz-daily-btn.on { border-color: var(--brass); box-shadow: inset 0 0 0 1px var(--brass); }
+.pz-daily-t { font-family: var(--f-display); font-weight: 600; font-size: 16px; }
+.pz-daily-s { font-size: 13.5px; color: var(--ivory-dim); }
+.pz-meta a { color: var(--brass-hi); font-weight: 600; }
+/* reports and the admin view */
+.pl-head-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.rp-reasons { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.rp-reason { align-items: flex-start; }
+.modal textarea.rp-note { min-height: 76px; resize: vertical; font: 15px/1.4 var(--f-body); }
+.ad-card { border: 1px solid rgba(var(--line),.3); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.ad-card.done { opacity: .75; }
+.ad-top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.ad-note { margin: 0; white-space: pre-wrap; font-size: 14.5px; background: rgba(var(--well), calc(.18 * var(--well-k))); padding: 6px 9px; border-radius: 5px; }
+.ad-flag { color: var(--c-blunder); border-color: var(--c-blunder); }
+.ad-close { display: inline-flex; gap: 6px; align-items: center; }
+.ad-sel { width: auto; padding: 6px 8px; font-size: 13.5px; }
+.ad-banner { width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.ad-closed { grid-template-columns: 0 minmax(0,1fr) auto; }
+.rv-mist { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .tc-wait { display: block; font-style: normal; font-size: 11px; font-weight: 700; color: var(--c-best); }
 .toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60; background: var(--paper); color: var(--ink); padding: 10px 16px; border-radius: 4px; box-shadow: 0 0 0 1px #c29a72, 0 14px 30px rgba(0,0,0,.55); font-weight: 500; font-size: 15px; max-width: calc(100vw - 40px); animation: rise .25s ease; }
 .foot { max-width: 1180px; margin: 0 auto; padding-block: 8px 26px; border-top: 1px solid rgba(var(--line),.18); color: var(--ivory-dim); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: space-between; }
@@ -808,6 +842,7 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
         <div><h2 id="pzTitle">Puzzles</h2><p class="card-sub" style="margin:4px 0 0">Find the strongest move. Ask for a hint when you're stuck.</p></div>
         <div class="rating-box"><small>Your rating</small><b id="pzRating">1200</b><span class="delta" id="pzDelta"></span></div>
       </div>
+      <div class="pz-daily" id="pzDaily" hidden></div>
       <div class="pz-status" id="pzStatus" aria-live="polite"></div>
       <div class="pz-meta" id="pzMeta"></div>
       <div class="actions">
@@ -828,6 +863,7 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
       <div class="rv-head"><h2 id="rvTitle">Game review</h2><button class="btn btn-small" id="btnExitReview">Done</button></div>
       <div class="rv-progress" id="rvProgress"><div class="rv-bar"><i id="rvBar"></i></div><span id="rvText">Starting…</span></div>
       <div class="acc" id="accRow"></div>
+      <div class="rv-mist" id="rvMist" hidden></div>
       <div class="graph" id="graph" aria-label="Evaluation graph. Click to jump to a move." role="img"></div>
       <div class="annot" id="annot" aria-live="polite"></div>
       <div class="ap" id="apBox">
@@ -930,6 +966,7 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
     <div class="set-section"><span class="field-label">Board</span><p class="fine" style="margin:0 0 8px">Each piece style picks a matching board. You can choose another one here.</p><div class="board-grid" id="boardGrid"></div></div>
     <div class="set-section"><label class="check"><input type="checkbox" id="setSound"> Sound effects</label></div>
     <div class="set-section"><label class="check"><input type="checkbox" id="setPremove"> Premoves</label><p class="fine" style="margin:4px 0 0 28px">Make your next move while your opponent is thinking. It plays the instant they move.</p></div>
+    <div class="set-section"><label class="check"><input type="checkbox" id="setChat"> Messages in online games</label><p class="fine" style="margin:4px 0 0 28px">Short ready-made messages such as “Good luck” and “Good game”. Turn this off to neither see nor send them.</p></div>
     <div class="set-section" id="installSection" hidden><span class="field-label">App</span><div class="ins-body"></div></div>
     <div class="modal-actions"><span class="sp"></span><button class="btn btn-brass" id="setDone">Done</button></div>
   </div>
@@ -2494,6 +2531,7 @@ function renderReview() {
   const keys = keyMoments();
   $('#btnPrevKey').disabled = !keys.some(p => p < S.view); $('#btnNextKey').disabled = !keys.some(p => p > S.view);
   renderAutoPlay();
+  if (typeof renderMistakeCta === 'function') renderMistakeCta();
 }
 const shortName = (s) => s.length > 14 ? s.slice(0, 13) + '…' : s;
 // The search depth the review actually reached: "depth 18", or a range when some positions stopped earlier.

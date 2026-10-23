@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { q } from './db.js';
 import { provisional } from './glicko.js';
 import { recordsFor, gameRow } from './players.js';
+import { isAdmin } from './moderation.js';
 
 const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{2,19}$/;
 const RESERVED = new Set(['stockfish', 'admin', 'administrator', 'woodpusher', 'anonymous', 'guest', 'system', 'moderator', 'support', 'root', 'null', 'undefined']);
@@ -19,9 +20,12 @@ export async function ratingsFor(userId) {
 
 async function meJson(req) {
   if (!req.session.userId) return { user: null };
-  const { rows } = await q('SELECT id, username, created_at FROM users WHERE id = $1', [req.session.userId]);
+  const { rows } = await q('SELECT id, username, created_at, closed_at, closed_reason FROM users WHERE id = $1', [req.session.userId]);
   if (!rows.length) { req.session.userId = null; return { user: null }; }
-  return { user: { id: rows[0].id, username: rows[0].username, createdAt: rows[0].created_at, ratings: await ratingsFor(rows[0].id) } };
+  const u = rows[0];
+  const admin = isAdmin(u.username);
+  const openReports = admin ? (await q(`SELECT COUNT(*)::int AS n FROM reports WHERE status = 'open'`)).rows[0].n : undefined;
+  return { user: { id: u.id, username: u.username, createdAt: u.created_at, ratings: await ratingsFor(u.id), admin, openReports, closed: u.closed_at ? u.closed_reason || 'closed' : null } };
 }
 
 // "Remember me" ticked: the login cookie lasts a year and is renewed on every visit, so someone who
@@ -98,14 +102,14 @@ export function authRouter({ isPlaying }) {
 export function publicRouter() {
   const r = express.Router();
   r.get('/users/:name', async (req, res) => {
-    const { rows } = await q('SELECT id, username, created_at FROM users WHERE username_lower = $1', [String(req.params.name).toLowerCase()]);
+    const { rows } = await q('SELECT id, username, created_at, closed_at, closed_reason FROM users WHERE username_lower = $1', [String(req.params.name).toLowerCase()]);
     if (!rows.length) return res.status(404).json({ error: 'No player with that name.' });
     const u = rows[0];
     const games = await q(
       `SELECT id, white_id, black_id, white_name, black_name, white_rating, black_rating, tc, category, rated, status, result, reason, white_diff, black_diff, moves, ended_at
          FROM games WHERE (white_id = $1 OR black_id = $1) AND status = 'finished' ORDER BY created_at DESC LIMIT 20`, [u.id]);
     res.json({
-      username: u.username, createdAt: u.created_at, ratings: await ratingsFor(u.id), records: await recordsFor(u.id),
+      username: u.username, createdAt: u.created_at, ratings: await ratingsFor(u.id), records: await recordsFor(u.id), closed: u.closed_at ? u.closed_reason || 'closed' : null,
       games: games.rows.map((g) => gameRow(g, u.id)),
     });
   });
