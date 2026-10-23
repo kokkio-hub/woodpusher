@@ -4,8 +4,9 @@
 import express from 'express';
 import zlib from 'node:zlib';
 import readline from 'node:readline';
-import { Readable, pipeline } from 'node:stream';
+import { Readable } from 'node:stream';
 import { pool, q } from './db.js';
+import { zstdFrames } from './zstd.js';
 
 const SOURCE = process.env.PUZZLE_SOURCE || 'https://database.lichess.org/lichess_db_puzzle.csv.zst';
 const BAND = 50, LO = 400, HI = 3000;                         // rating bands of 50 points
@@ -41,7 +42,8 @@ export async function startPuzzleImport() {
     status.count = (await q('SELECT COUNT(*)::int AS n FROM puzzles')).rows[0].n;
     // Once an import has read the whole file (or filled every band it could), it isn't repeated on the
     // next deploy, even when the rarest bands stayed short. PUZZLE_REIMPORT=1 runs it again.
-    const doneBefore = (await q(`SELECT value FROM app_meta WHERE key = 'puzzles_imported'`)).rows.length > 0;
+    // (A marker with nothing stored doesn't count: that import found no puzzles and is tried again.)
+    const doneBefore = (await q(`SELECT value FROM app_meta WHERE key = 'puzzles_imported'`)).rows.length > 0 && status.count > 0;
     if ((doneBefore && process.env.PUZZLE_REIMPORT !== '1') || status.count >= ENOUGH || process.env.PUZZLE_IMPORT === 'off') { status.done = status.count > 0; return; }
     if (typeof zlib.createZstdDecompress !== 'function') { status.error = 'This Node.js version cannot read the puzzle file (needs Node 22.15 or newer).'; console.warn('Puzzles:', status.error); return; }
   } catch (e) { status.error = e.message; return; }
@@ -51,8 +53,10 @@ export async function startPuzzleImport() {
     if (!rows[0].ok) return;                                 // another instance is importing
     status.importing = true;
     await importPuzzles(client);
-  } catch (e) { status.error = e.message; console.error('Puzzle import failed:', e.message); }
-  finally {
+  } catch (e) {
+    status.error = e.message; console.error('Puzzle import failed:', e.message);
+    try { status.count = (await client.query('SELECT COUNT(*)::int AS n FROM puzzles')).rows[0].n; } catch (e2) {}
+  } finally {
     status.importing = false;
     try { await client.query('SELECT pg_advisory_unlock($1)', [LOCK]); } catch (e) {}
     client.release();
@@ -70,15 +74,17 @@ async function importPuzzles(client) {
   const res = await fetch(SOURCE, { headers: { 'User-Agent': UA }, signal: ac.signal });
   if (!res.ok || !res.body) throw new Error(`download failed: HTTP ${res.status}`);
   console.log(`Puzzles: HTTP ${res.status}, ${res.headers.get('content-type') || '?'}, ${res.headers.get('content-length') || '?'} bytes`);
-  // pipeline: an error anywhere (the download, the decompression, or our own cancel at the end) is
-  // reported once, here, instead of as an unhandled stream error that would stop the whole server
-  let streamErr = null; let rl = null;
-  const unzst = zlib.createZstdDecompress({ params: { [zlib.constants.ZSTD_d_windowLogMax]: 31 } });
-  const input = pipeline(Readable.fromWeb(res.body), unzst, (e) => {
-    if (e && !ac.signal.aborted && !streamErr) streamErr = e;
-    if (e && rl) rl.close();
-  });
-  rl = readline.createInterface({ input, crlfDelay: Infinity });
+  // The file is many zstd frames (see zstd.js). An error anywhere (the download, the decompression, or
+  // our own cancel at the end) is reported once, here, instead of as an unhandled stream error that
+  // would stop the whole server.
+  // (readline passes an input error on as its own 'error' event, which ends the loop below.)
+  let streamErr = null;
+  const keep = (e) => { if (e && !ac.signal.aborted && !streamErr) streamErr = e; };
+  const body = Readable.fromWeb(res.body); body.on('error', () => {});
+  const input = Readable.from(zstdFrames(body, { params: { [zlib.constants.ZSTD_d_windowLogMax]: 31 } }), { objectMode: false });
+  input.on('error', keep);
+  const rl = readline.createInterface({ input, crlfDelay: Infinity });
+  rl.on('error', keep);
   let batch = []; let header = true; const t0 = Date.now();
   const flush = async () => {
     if (!batch.length) return;
@@ -112,11 +118,16 @@ async function importPuzzles(client) {
       if (status.read % 250000 === 0) console.log(`Puzzles: read ${status.read}, kept ${status.kept} (${Math.round((Date.now() - t0) / 1000)} s)`);
     }
     await flush();
+  } catch (e) {
+    if (!streamErr) throw e;                                 // a database error; a stream error is reported below
   } finally {
     rl.close(); ac.abort(); input.destroy();
   }
   if (streamErr) throw new Error(`reading the puzzle file: ${streamErr.message}`);
-  status.count = (await client.query('SELECT COUNT(*)::int AS n FROM puzzles')).rows[0].n; status.done = true;
+  status.count = (await client.query('SELECT COUNT(*)::int AS n FROM puzzles')).rows[0].n;
+  // Nothing usable in the file: report it, and don't mark the import as done so the next start tries again
+  if (!status.kept && !status.count) throw new Error(`no puzzles found after reading ${status.read} lines`);
+  status.done = true;
   await client.query(`INSERT INTO app_meta (key, value) VALUES ('puzzles_imported', $1) ON CONFLICT (key) DO UPDATE SET value = $1, at = now()`, [String(status.count)]);
   console.log(`Puzzles: done, ${status.count} stored after reading ${status.read} in ${Math.round((Date.now() - t0) / 1000)} s`);
 }

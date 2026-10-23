@@ -14,5 +14,12 @@ for (let k = 0; k < 70; k++) for (const [i, p] of ctx.P.entries()) {
   const tags = p[3].split(',').map(t => TAG[t]).filter(Boolean).concat(rnd() < .5 ? ['middlegame', 'short'] : ['endgame', 'long']);
   lines.push([id, p[0], p[1], rating, rd, pop, 900 + Math.round(rnd() * 9000), tags.join(' '), `https://lichess.org/abc${k}${i}#30`, ''].join(','));
 }
-fs.writeFileSync(process.argv[2], zlib.zstdCompressSync(Buffer.from(lines.join('\n') + '\n')));
+// Like the real file (made with pzstd): several zstd frames, each after a skippable frame holding its size
+const text = Buffer.from(lines.join('\n') + '\n'); const parts = [];
+for (let i = 0; i < text.length; i += 40000) {
+  const frame = zlib.zstdCompressSync(text.subarray(i, i + 40000));
+  const skip = Buffer.alloc(12); skip.writeUInt32LE(0x184D2A50, 0); skip.writeUInt32LE(4, 4); skip.writeUInt32LE(frame.length, 8);
+  parts.push(skip, frame);
+}
+fs.writeFileSync(process.argv[2], Buffer.concat(parts));
 console.log('wrote', lines.length - 1, 'puzzles to', process.argv[2]);
