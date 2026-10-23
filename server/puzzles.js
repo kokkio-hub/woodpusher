@@ -4,7 +4,7 @@
 import express from 'express';
 import zlib from 'node:zlib';
 import readline from 'node:readline';
-import { Readable } from 'node:stream';
+import { Readable, pipeline } from 'node:stream';
 import { pool, q } from './db.js';
 
 const SOURCE = process.env.PUZZLE_SOURCE || 'https://database.lichess.org/lichess_db_puzzle.csv.zst';
@@ -69,9 +69,16 @@ async function importPuzzles(client) {
   const ac = new AbortController();
   const res = await fetch(SOURCE, { headers: { 'User-Agent': UA }, signal: ac.signal });
   if (!res.ok || !res.body) throw new Error(`download failed: HTTP ${res.status}`);
+  console.log(`Puzzles: HTTP ${res.status}, ${res.headers.get('content-type') || '?'}, ${res.headers.get('content-length') || '?'} bytes`);
+  // pipeline: an error anywhere (the download, the decompression, or our own cancel at the end) is
+  // reported once, here, instead of as an unhandled stream error that would stop the whole server
+  let streamErr = null; let rl = null;
   const unzst = zlib.createZstdDecompress({ params: { [zlib.constants.ZSTD_d_windowLogMax]: 31 } });
-  const input = Readable.fromWeb(res.body).pipe(unzst);
-  const rl = readline.createInterface({ input, crlfDelay: Infinity });
+  const input = pipeline(Readable.fromWeb(res.body), unzst, (e) => {
+    if (e && !ac.signal.aborted && !streamErr) streamErr = e;
+    if (e && rl) rl.close();
+  });
+  rl = readline.createInterface({ input, crlfDelay: Infinity });
   let batch = []; let header = true; const t0 = Date.now();
   const flush = async () => {
     if (!batch.length) return;
@@ -86,6 +93,8 @@ async function importPuzzles(client) {
     for await (const line of rl) {
       if (header) { header = false; if (line.startsWith('PuzzleId')) continue; }
       status.read++;
+      // Every band full (the very lowest and highest may never fill): stop reading the rest of the file
+      if (status.read % 5000 === 0 && full() >= bands - 2) break;
       // PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
       const f = line.split(',');
       if (f.length < 9) continue;
@@ -106,6 +115,7 @@ async function importPuzzles(client) {
   } finally {
     rl.close(); ac.abort(); input.destroy();
   }
+  if (streamErr) throw new Error(`reading the puzzle file: ${streamErr.message}`);
   status.count = (await client.query('SELECT COUNT(*)::int AS n FROM puzzles')).rows[0].n; status.done = true;
   await client.query(`INSERT INTO app_meta (key, value) VALUES ('puzzles_imported', $1) ON CONFLICT (key) DO UPDATE SET value = $1, at = now()`, [String(status.count)]);
   console.log(`Puzzles: done, ${status.count} stored after reading ${status.read} in ${Math.round((Date.now() - t0) / 1000)} s`);

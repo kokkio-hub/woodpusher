@@ -37,6 +37,9 @@ class UciEngine {
     this.dir = dir; this.buf = ''; this.cur = null; this.waiters = [];
     this.p = spawn(process.execPath, [path.join(dir, 'engine.cjs')], { stdio: ['pipe', 'pipe', 'ignore'] });
     try { os.setPriority(this.p.pid, 19); } catch (e) { /* not allowed everywhere */ }
+    // A stream or process error here must never become an unhandled error that stops the game server
+    this.p.on('error', (e) => { console.error('Fair play engine:', e.message); this.dead = true; });
+    this.p.stdin.on('error', () => { this.dead = true; }); this.p.stdout.on('error', () => {});
     this.p.on('exit', () => { this.dead = true; for (const w of this.waiters) w.res(null); this.waiters = []; if (this.cur) { this.cur.res(null); this.cur = null; } });
     this.p.stdout.on('data', (d) => { this.buf += d; let i; while ((i = this.buf.indexOf('\n')) >= 0) { const l = this.buf.slice(0, i).trim(); this.buf = this.buf.slice(i + 1); this.line(l); } });
     this.ready = (async () => { this.send('uci'); await this.wait(l => l === 'uciok'); this.send('setoption name Hash value 16'); this.send('isready'); await this.wait(l => l === 'readyok'); })();

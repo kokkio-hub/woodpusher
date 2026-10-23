@@ -28,6 +28,8 @@ http.createServer((req, res) => {
   const send = (code, body, type = 'application/json') => { res.writeHead(code, { 'Content-Type': type }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
   if (!/^Woodpusher\//.test(req.headers['user-agent'] || '')) return send(403, { error: 'no user agent' });
   // The Lichess puzzle database, when MOCK_PUZZLES names a file made by test/make-puzzle-sample.mjs
+  // A download that breaks off halfway
+  if (u.pathname === '/cut.csv.zst' && process.env.MOCK_PUZZLES) { res.writeHead(200, { 'Content-Type': 'application/zstd' }); const all = fs.readFileSync(process.env.MOCK_PUZZLES); res.write(all.subarray(0, all.length >> 1)); setTimeout(() => res.destroy(), 300); return; }
   if (u.pathname === '/lichess_db_puzzle.csv.zst' && process.env.MOCK_PUZZLES) { res.writeHead(200, { 'Content-Type': 'application/zstd' }); fs.createReadStream(process.env.MOCK_PUZZLES).pipe(res); return; }
   if ((m = u.pathname.match(/^\/api\/games\/user\/([^/]+)$/))) {
     const n = decodeURIComponent(m[1]).toLowerCase();
