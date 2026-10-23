@@ -26,7 +26,7 @@ function serial(site, fn) { const p = chains[site].then(fn, fn); chains[site] = 
 async function get(site, url, accept) {
   if (Date.now() < cooldown[site]) throw new ImportError(503, `${LABEL[site]} is busy right now. Try again in a minute.`);
   let r;
-  try { r = await serial(site, () => fetch(url, { headers: { 'User-Agent': UA, Accept: accept }, signal: AbortSignal.timeout(12000) })); }
+  try { r = await serial(site, () => fetch(url, { headers: { 'User-Agent': UA, Accept: accept }, signal: AbortSignal.timeout(20000) })); }
   catch (e) { throw new ImportError(502, `Couldn't reach ${LABEL[site]}. Try again in a moment.`); }
   if (r.status === 429) { cooldown[site] = Date.now() + 60 * 1000; throw new ImportError(503, `${LABEL[site]} is busy right now. Try again in a minute.`); }
   return r;
@@ -84,9 +84,15 @@ async function chesscomGames(name) {
   // Newest month first. Only the year and month are taken from the list, so requests never leave Chess.com.
   for (const u of archives.slice(-3).reverse()) {
     const m = u.match(/\/games\/(\d{4})\/(\d{2})\/?$/); if (!m) continue;
-    const r2 = await get(site, `${BASE.chesscom}/pub/player/${lower}/games/${m[1]}/${m[2]}`, 'application/json');
-    if (!r2.ok) { if (games.length) break; throw failed(site); }
-    let list = []; try { list = (await r2.json()).games || []; } catch (e) { throw failed(site); }
+    // A month that fails (very active players have months of many megabytes) ends the list early
+    // when there are games already, rather than failing the whole look-up
+    let list = [];
+    try {
+      const r2 = await get(site, `${BASE.chesscom}/pub/player/${lower}/games/${m[1]}/${m[2]}`, 'application/json');
+      if (!r2.ok) throw failed(site);
+      list = (await r2.json()).games || [];
+      if (!Array.isArray(list)) throw failed(site);
+    } catch (e) { if (games.length) break; throw e instanceof ImportError ? e : failed(site); }
     for (const g of list.slice().reverse()) {
       if (games.length >= MAX_GAMES) break;
       if (!g || g.rules !== 'chess' || !g.pgn || !g.white || !g.black) continue;

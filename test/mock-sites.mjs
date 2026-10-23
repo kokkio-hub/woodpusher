@@ -2,7 +2,8 @@
 // Start it, then start the server with IMPORT_LICHESS_BASE and IMPORT_CHESSCOM_BASE pointing here:
 //   node test/mock-sites.mjs &   (port 3199)
 //   IMPORT_LICHESS_BASE=http://localhost:3199 IMPORT_CHESSCOM_BASE=http://localhost:3199 npm start
-// Users: "Oscar_K" has games; "nobody" doesn't exist; "busy" is rate-limited; "empty" has no games.
+// Users: "Oscar_K" has games; "nobody" doesn't exist; "busy" is rate-limited; "empty" has no games;
+// "halfway" gets an error for its older month.
 import http from 'node:http';
 const PORT = Number(process.env.MOCK_PORT) || 3199;
 const OPERA = `[Event "Rated blitz game"]\n[Site "https://lichess.org/abcd1234"]\n[White "Oscar_K"]\n[Black "Duke"]\n[Result "1-0"]\n[WhiteElo "1510"]\n[BlackElo "1495"]\n[Termination "Normal"]\n\n1. e4 e5 2. Nf3 d6 3. d4 Bg4 4. dxe5 Bxf3 5. Qxf3 dxe5 6. Bc4 Nf6 7. Qb3 Qe7 8. Nc3 c6 9. Bg5 b5 10. Nxb5 cxb5 11. Bxb5+ Nbd7 12. O-O-O Rd8 13. Rxd7 Rxd7 14. Rd1 Qe6 15. Bxd7+ Nxd7 16. Qb8+ Nxb8 17. Rd8# 1-0\n`;
@@ -38,6 +39,7 @@ http.createServer((req, res) => {
     if (n === 'empty') return send(200, { archives: [] });
     return send(200, { archives: ['https://api.chess.com/pub/player/' + n + '/games/2026/09', 'https://api.chess.com/pub/player/' + n + '/games/2026/10'] });
   }
-  if ((m = u.pathname.match(/^\/pub\/player\/([^/]+)\/games\/(\d{4})\/(\d{2})$/))) return send(200, { games: months[`${m[2]}/${m[3]}`] || [] });
+  // "halfway": the older month fails, so only the newest month's games come back
+  if ((m = u.pathname.match(/^\/pub\/player\/([^/]+)\/games\/(\d{4})\/(\d{2})$/))) return m[1] === 'halfway' && m[3] === '09' ? send(500, { error: 'boom' }) : send(200, { games: months[`${m[2]}/${m[3]}`] || [] });
   send(404, { error: 'mock: unknown path ' + u.pathname });
 }).listen(PORT, () => console.log('mock sites on', PORT));
