@@ -3,7 +3,7 @@
 // and the username look-up still need the server, so /api and /socket.io always go to the network.
 // tools/build-front.mjs fills in the version and the list of files; a new build is a new version,
 // which replaces the cached copy of the site.
-const VERSION = "694072652a";
+const VERSION = "dc60858712";
 const CACHE = 'woodpusher-' + VERSION;
 const PRECACHE = ["/","/app.js?v=a315e00ba3","/data.js?v=a315e00ba3","/look.js?v=a315e00ba3","/chess.js?v=a315e00ba3","/fonts/fonts.css?v=a315e00ba3","/favicon.svg?v=a315e00ba3","/stockfish.js","/stockfish.wasm","/manifest.webmanifest","/privacy.html","/fonts/carlito-latin-400-italic.woff2","/fonts/carlito-latin-400-normal.woff2","/fonts/carlito-latin-700-italic.woff2","/fonts/carlito-latin-700-normal.woff2","/fonts/outfit-latin-400-normal.woff2","/fonts/outfit-latin-500-normal.woff2","/fonts/outfit-latin-600-normal.woff2","/fonts/outfit-latin-700-normal.woff2","/fonts/share-tech-mono-latin-400-normal.woff2","/icons/apple-touch-icon.png","/icons/icon-192.png","/icons/icon-512.png","/icons/icon-maskable-192.png","/icons/icon-maskable-512.png","/icons/icon.svg","/books/abdusattorov.json?v=a315e00ba3","/books/carlsen.json?v=a315e00ba3","/books/caruana.json?v=a315e00ba3","/books/firouzja.json?v=a315e00ba3","/books/keymer.json?v=a315e00ba3","/books/nakamura.json?v=a315e00ba3","/books/praggnanandhaa.json?v=a315e00ba3","/books/sindarov.json?v=a315e00ba3","/books/so.json?v=a315e00ba3","/books/weiyi.json?v=a315e00ba3"];
 const NETWORK_ONLY = /^\/(api|socket\.io)\/|^\/(sw\.js|healthz)$/;
