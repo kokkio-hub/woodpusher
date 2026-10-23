@@ -99,6 +99,7 @@ async function importPuzzles(client) {
     for await (const line of rl) {
       if (header) { header = false; if (line.startsWith('PuzzleId')) continue; }
       status.read++;
+      if (status.read % 250000 === 0) console.log(`Puzzles: read ${status.read}, kept ${status.kept} (${Math.round((Date.now() - t0) / 1000)} s)`);
       // Every band full (the very lowest and highest may never fill): stop reading the rest of the file
       if (status.read % 5000 === 0 && full() >= bands - 2) break;
       // PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
@@ -115,7 +116,6 @@ async function importPuzzles(client) {
         await flush();
         if (full() >= bands - 2) break;                      // the very lowest and highest bands may never fill
       }
-      if (status.read % 250000 === 0) console.log(`Puzzles: read ${status.read}, kept ${status.kept} (${Math.round((Date.now() - t0) / 1000)} s)`);
     }
     await flush();
   } catch (e) {

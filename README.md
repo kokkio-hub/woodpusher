@@ -67,6 +67,7 @@ server/        Node.js server: Express, Socket.IO, PostgreSQL
   progress.js  progress saved per account, merged between devices
   import.js    recent games from Lichess and Chess.com by username
   puzzles.js   the Lichess puzzle selection, by rating and theme, and the puzzle of the day
+  zstd.js      reads multi-frame .zst files (the Lichess file), which Node's own decoder stops early on
   fairplay.js  the background Stockfish check of rated games
   moderation.js  reports, the admin view, closing accounts
   games.js     matchmaking, friend challenges, live games, clocks, ratings
