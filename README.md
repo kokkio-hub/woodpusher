@@ -82,6 +82,7 @@ front/         source of the web page
   sync.js      sends progress to the account and back
   players.js   profile pages, the leaderboard, reports and the admin view
   install.js   installing as an app; sw.js is the service worker
+  404.html     the page for addresses that don't exist
   data/        openings and puzzles
 public/        the built site that the server sends to browsers
 tools/         build script for public/; engine-check/ measures the engine (bot strength, review quality)

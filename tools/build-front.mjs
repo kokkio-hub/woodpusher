@@ -72,6 +72,8 @@ fs.rmSync(P('books'), { recursive: true, force: true }); fs.mkdirSync(P('books')
 if (fs.existsSync(F('data/books'))) for (const f of fs.readdirSync(F('data/books'))) fs.copyFileSync(F('data/books/' + f), P('books/' + f));
 for (const f of ['stockfish.js', 'stockfish.wasm', 'stockfish.asm.js', 'chess.js']) fs.copyFileSync(F('vendor/' + f), P(f));
 fs.copyFileSync(F('privacy.html'), P('privacy.html'));
+// The page for addresses that don't exist (sent by server/index.js with status 404)
+fs.copyFileSync(F('404.html'), P('404.html'));
 fs.copyFileSync(F('favicon.svg'), P('favicon.svg'));
 fs.mkdirSync(P('fonts'), { recursive: true }); for (const f of fs.readdirSync(F('fonts'))) fs.copyFileSync(F('fonts/' + f), P('fonts/' + f));
 // Installing as an app: manifest and icons
@@ -88,6 +90,7 @@ const q = '?v=' + ver;
 stamp('index.html', [['src="/app.js"', `src="/app.js${q}"`], ['src="/data.js"', `src="/data.js${q}"`], ['src="/look.js"', `src="/look.js${q}"`],
   ['src="/chess.js"', `src="/chess.js${q}"`], ['href="/fonts/fonts.css"', `href="/fonts/fonts.css${q}"`], ['href="/favicon.svg"', `href="/favicon.svg${q}"`]]);
 stamp('privacy.html', [['href="/fonts/fonts.css"', `href="/fonts/fonts.css${q}"`], ['src="/look.js"', `src="/look.js${q}"`], ['href="/favicon.svg"', `href="/favicon.svg${q}"`]]);
+stamp('404.html', [['href="/fonts/fonts.css"', `href="/fonts/fonts.css${q}"`], ['src="/look.js"', `src="/look.js${q}"`], ['href="/favicon.svg"', `href="/favicon.svg${q}"`]]);
 stamp('app.js', [["const BOOK_QS = '';", `const BOOK_QS = '${q}';`]]);
 // ---- service worker: the files the site needs to open without a connection, and a version that
 // changes whenever any of them does (a new version replaces the cached copy of the site).

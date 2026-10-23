@@ -99,6 +99,14 @@ app.use(express.static(PUBLIC, {
 // Links to games, friend challenges, profiles and the leaderboard all open the app
 app.get(['/game/:id', '/c/:code', '/@/:name', '/leaderboard', '/admin'], (req, res) => res.sendFile(path.join(PUBLIC, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
+// Any other address: the "page not found" page for browsers, a short text for everything else
+const NOT_FOUND = path.join(PUBLIC, '404.html');
+app.use((req, res) => {
+  res.status(404).set('Cache-Control', 'no-cache');
+  const text = () => res.type('txt').send('Not found.');
+  if (!req.accepts('html')) return text();
+  res.sendFile(NOT_FOUND, (err) => { if (err && !res.headersSent) text(); });
+});
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Something went wrong on the server.' }); });
 
 await lobby.restore();
