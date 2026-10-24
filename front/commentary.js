@@ -122,13 +122,14 @@ function sacrificeAt(i) {
 // down to -3 losing. The same cut-offs as the words in standing() below.
 const tierOf = (p) => (p >= 86 ? 3 : p >= 68 ? 2 : p >= 57 ? 1 : p > 43 ? 0 : p > 32 ? -1 : p > 14 ? -2 : -3);
 // Called from classifyAll for moves Stockfish rates best (or as good as best). Returns 'brilliant',
-// 'great' or null. Results are kept per move: the positions never change during a review.
+// 'great' or null. Results are kept per move and evaluation: a deep review replaces the evaluations.
 // Brilliant: a sound sacrifice that leaves the player better off (or mating).
 // Great: the only good move, where every other move would have changed how the game stands by at
 // least two steps (say from level to clearly worse), and not an obvious capture.
 function specialMove(i, ctx) {
   const R = S.review; R.memo = R.memo || {};
-  const key = i + ':' + ctx.altKey; if (key in R.memo) return R.memo[key];
+  const key = [i, ctx.altKey, ctx.isBest ? 1 : 0, ctx.before.toFixed(2), ctx.after.toFixed(2), ctx.alt ? scoreOf(ctx.alt.ev) : '-'].join(':');
+  if (key in R.memo) return R.memo[key];
   let out = null;
   const L = S.line, m = L.moves[i];
   if (!m.san.includes('#') && (ctx.after >= 55 || ctx.postMate)) {

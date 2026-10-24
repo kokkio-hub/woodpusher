@@ -389,6 +389,9 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .rv-progress { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--ivory-dim); }
 .rv-bar { flex: 1; height: 5px; border-radius: 3px; background: rgba(0,0,0,.35); overflow: hidden; box-shadow: inset 0 0 0 1px rgba(var(--line),.25); }
 .rv-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--brass-lo), var(--brass-hi)); transition: width .3s; }
+.rv-deep { display: flex; align-items: center; gap: 12px; margin-top: -4px; }
+.rv-deep .btn { flex: none; }
+.rv-deep-note { margin: 0; font-size: 13px; line-height: 1.35; color: var(--ivory-dim); min-width: 0; }
 .acc { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .acc-side { padding: 12px 12px 10px; border-radius: 5px; border: 1px solid rgba(var(--line),.28); background: rgba(var(--well), calc(.2 * var(--well-k))); display: flex; flex-direction: column; min-width: 0; }
 .acc-name { font-size: 13.5px; color: var(--ivory-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
@@ -905,6 +908,7 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
       <section class="review" id="reviewPanel" hidden aria-labelledby="rvTitle">
         <div class="rv-head"><h2 id="rvTitle">Game review</h2><button class="btn btn-small" id="btnExitReview">Done</button></div>
         <div class="rv-progress" id="rvProgress"><div class="rv-bar"><i id="rvBar"></i></div><span id="rvText">Starting…</span></div>
+        <div class="rv-deep" id="rvDeep" hidden><button class="btn btn-small" id="btnDeep" type="button">Deep review</button><p class="rv-deep-note" id="rvDeepNote" aria-live="polite"></p></div>
         <div class="acc" id="accRow"></div>
         <div class="rv-mist" id="rvMist" hidden></div>
         <div class="graph" id="graph" aria-label="Evaluation graph. Click to jump to a move." role="img"></div>
@@ -1034,6 +1038,7 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
     <div class="set-section"><label class="check"><input type="checkbox" id="setSound"> Sound effects</label></div>
     <div class="set-section"><label class="check"><input type="checkbox" id="setPremove"> Premoves</label><p class="fine" style="margin:4px 0 0 28px">Make your next move while your opponent is thinking. It plays the instant they move.</p></div>
     <div class="set-section"><label class="check"><input type="checkbox" id="setChat"> Messages in online games</label><p class="fine" style="margin:4px 0 0 28px">Short ready-made messages such as “Good luck” and “Good game”. Turn this off to neither see nor send them.</p></div>
+    <div class="set-section" id="deepSection" hidden><span class="field-label">Deep review</span><p class="fine" id="deepSetText" style="margin:0 0 8px"></p><button class="btn btn-small" id="btnDeepRemove" type="button">Remove it</button></div>
     <div class="set-section" id="installSection" hidden><span class="field-label">App</span><div class="ins-body"></div></div>
     <div class="modal-actions"><span class="sp"></span><button class="btn btn-brass" id="setDone">Done</button></div>
   </div>
@@ -2013,7 +2018,7 @@ const ENGINE_SOURCES = [
   { url: 'stockfish.asm.js', label: 'asm.js' },
   // Only for opening app.html on its own, where the engine files are not next to the page; the
   // website build (tools/build-front.mjs) removes this line. The wasm address goes in the hash.
-  { url: 'https://cdn.jsdelivr.net/npm/stockfish@19.0.1/bin/stockfish-19-lite-single.js', wasm: 'https://cdn.jsdelivr.net/npm/stockfish@19.0.1/bin/stockfish-19-lite-single.wasm', label: 'WebAssembly', blob: true },
+  { url: 'https://unpkg.com/stockfish@19.0.1/bin/stockfish-19-lite-single.js', wasm: 'https://unpkg.com/stockfish@19.0.1/bin/stockfish-19-lite-single.wasm', label: 'WebAssembly', blob: true },
 ];
 function spawnWorker(src) {
   if (src.blob) return new Worker(URL.createObjectURL(new Blob([`importScripts(${JSON.stringify(src.url)});`], { type: 'text/javascript' })) + '#' + encodeURIComponent(src.wasm));
@@ -2276,6 +2281,7 @@ function resumeGame() {
 function setMode(m) {
   const prev = S.mode; S.mode = m;
   if (m !== 'review') apPause();
+  if (m !== 'review' && prev === 'review') deepStop(true);
   if (m !== 'play' && m !== 'online') S.premoves = [];
   $('#setupCard').hidden = m !== 'idle' && m !== 'over';   // after a game it waits under "New game"
   $('#reviewCta').hidden = m !== 'idle';
@@ -2481,6 +2487,7 @@ async function startReview() {
   S.engineToken++; if (ENG.main) ENG.main.cancelAll();
   const key = lineKey(L);
   if (!S.review || S.review.key !== key) {
+    deepStop(true);   // a deep review of another game
     S.review = { key, evals: [], best: [], pv: [], alt: [], depth: [], cls: [], acc: [], token: 0, done: false };
   }
   apPause();
@@ -2512,12 +2519,7 @@ async function analyse() {
       const res = await eng.search({ fen: L.fens[i], depth, movetime, skill: 20, multipv: 2 });
       if (token !== R.token) return;
       if (!res) { next = Math.min(next, i); return; }
-      const stm = L.fens[i].split(' ')[1] === 'w' ? 1 : -1; const info = res.info || { cp: 0, pv: [] };
-      const evOf = (x) => (x.mate != null ? { mate: x.mate * stm } : { cp: Math.round((x.cp || 0) * EVAL_SCALE) * stm });
-      R.evals[i] = evOf(info);
-      R.best[i] = res.bestmove; R.pv[i] = info.pv || []; (R.depth = R.depth || [])[i] = info.depth || 0;
-      const two = res.lines && res.lines[1];
-      R.alt[i] = two && two.pv && two.pv.length && two.pv[0] !== res.bestmove ? { ev: evOf(two), move: two.pv[0] } : null;
+      storeEval(R, L, i, res, EVAL_SCALE);
       onEval();
     }
   };
@@ -2525,6 +2527,16 @@ async function analyse() {
   if (token !== R.token) return;
   R.done = R.evals.filter(Boolean).length === n; classifyAll(); renderAll(); save();
   if (R.done) recordReviewAccuracy();
+}
+// One position's result: the evaluation from White's side, the best move and its line, and the second-best
+// move (which tells an only move apart). scale: EVAL_SCALE for the lite engine, 1 for the full one.
+function storeEval(R, L, i, res, scale) {
+  const stm = L.fens[i].split(' ')[1] === 'w' ? 1 : -1; const info = res.info || { cp: 0, pv: [] };
+  const evOf = (x) => (x.mate != null ? { mate: x.mate * stm } : { cp: Math.round((x.cp || 0) * scale) * stm });
+  R.evals[i] = evOf(info);
+  R.best[i] = res.bestmove; R.pv[i] = info.pv || []; (R.depth = R.depth || [])[i] = info.depth || 0;
+  const two = res.lines && res.lines[1];
+  R.alt[i] = two && two.pv && two.pv.length && two.pv[0] !== res.bestmove ? { ev: evOf(two), move: two.pv[0] } : null;
 }
 let evalRenderPending = false;
 function onEval() {
@@ -2592,9 +2604,11 @@ function pvToSan(fen, pv, max = 6) {
 function renderReview() {
   const R = S.review, L = S.line; if (!R || !L) return;
   const n = L.fens.length; const got = R.evals.filter(Boolean).length;
-  $('#rvBar').style.width = (got / n * 100).toFixed(1) + '%';
-  $('#rvText').textContent = (got < n ? `Analysing ${got} of ${n} positions` : `Analysed ${n} positions`) + depthText(R);
-  $('#rvProgress').style.opacity = got < n ? 1 : .7;
+  const pr = reviewProgress(R, n, got);
+  $('#rvBar').style.width = (clamp(pr.pct, 0, 1) * 100).toFixed(1) + '%';
+  $('#rvText').textContent = pr.text;
+  $('#rvProgress').style.opacity = pr.busy ? 1 : .7;
+  renderDeep();
   // accuracy
   $('#accRow').innerHTML = ['w', 'b'].map(c => {
     const a = accuracyOf(c);
@@ -2854,7 +2868,7 @@ function snapshot() {
     v: 1, settings: S.settings, mode: S.mode, orientation: S.orientation, view: S.view,
     line: L ? { startFen: L.startFen, sans: L.moves.map(m => m.san), names: L.names, subs: L.subs, headers: L.headers, result: L.result, reason: L.reason, source: L.source, you: L.you || null } : null,
     game: g ? { playerColor: g.playerColor, elo: g.elo, opp: g.opp || null, inBook: !!g.inBook, tc: g.tc, histId: g.histId, takebacks: g.takebacks || 0, clock: { w: Math.max(0, remaining('w')), b: Math.max(0, remaining('b')), running: g.clock.running } } : null,
-    review: S.review ? { v: 3, key: S.review.key, evals: S.review.evals, best: S.review.best, pv: S.review.pv, alt: S.review.alt, depth: S.review.depth || [] } : null,
+    review: S.review ? { v: 3, key: S.review.key, evals: S.review.evals, best: S.review.best, pv: S.review.pv, alt: S.review.alt, depth: S.review.depth || [], src: S.review.src || [] } : null,
   };
 }
 let saveTimer = null;
@@ -2875,7 +2889,7 @@ function restore(d) {
     S.view = clamp(d.view ?? fens.length - 1, 0, fens.length - 1);
     // v3 reviews were made by Stockfish 19. An older one (Stockfish 10) is simply analysed again.
     if (d.review && d.review.key === lineKey(S.line)) S.review = d.review.v === 3
-      ? { key: d.review.key, evals: d.review.evals || [], best: d.review.best || [], pv: d.review.pv || [], alt: d.review.alt || [], depth: d.review.depth || [], cls: [], acc: [], token: 0, done: false }
+      ? { key: d.review.key, evals: d.review.evals || [], best: d.review.best || [], pv: d.review.pv || [], alt: d.review.alt || [], depth: d.review.depth || [], src: d.review.src || [], cls: [], acc: [], token: 0, done: false }
       : { key: d.review.key, evals: [], best: [], pv: [], alt: [], depth: [], cls: [], acc: [], token: 0, done: false };
     let mode = d.mode;
     if (mode === 'play' || mode === 'paused') mode = S.game ? 'paused' : 'idle';
@@ -3009,7 +3023,7 @@ function boot(hot) {
   if (!ok) { setMode('idle'); renderPieces(START_FEN, false); renderAll(); }
   requestAnimationFrame(tick);
   setTimeout(() => { buildOverlays(); buildQuickTextures(); scheduleTextureUpgrade(); watchZoom(); startOpening(); }, 0);
-  bootEngine(); wireTrainer(); wireSettings();
+  bootEngine(); wireTrainer(); wireSettings(); wireDeep();
   if (window.WP_ONLINE) window.WP_ONLINE.boot();
   for (const k of ['WP_IMPORT', 'WP_SYNC', 'WP_PLAYERS', 'WP_INSTALL']) if (window[k] && window[k].boot) window[k].boot();
   if (window.claude && window.claude.hot && window.claude.hot.snapshot) window.claude.hot.snapshot(() => ({ state: snapshot() }));

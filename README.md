@@ -69,6 +69,7 @@ server/        Node.js server: Express, Socket.IO, PostgreSQL
   puzzles.js   the Lichess puzzle selection, by rating and theme, and the puzzle of the day
   zstd.js      reads multi-frame .zst files (the Lichess file), which Node's own decoder stops early on
   fairplay.js  the background Stockfish check of rated games
+  deep-engine.js  whether the deep review engine is on Cloudflare R2 (for the Deep review button)
   moderation.js  reports, the admin view, closing accounts
   games.js     matchmaking, friend challenges, live games, clocks, ratings
   glicko.js    Glicko-2 rating calculation
@@ -76,6 +77,7 @@ server/        Node.js server: Express, Socket.IO, PostgreSQL
 front/         source of the web page
   app.html     board, clock, play vs Stockfish, review, play through
   commentary.js  review notes, and the tests for great and brilliant moves
+  deep.js      deep review with full-strength Stockfish 19; deep-engine.js is its worker
   trainer.js   puzzles (the big set, the daily puzzle, your mistakes) and opening lessons
   online.js    online lobby, live games, watching, messages, waiting in the queue
   importer.js  Review a game: find games by username
@@ -99,6 +101,27 @@ Stockfish 19 runs in the player's browser, in a Web Worker, through [stockfish.j
 - **Game review** searches each position to depth 18 or for 1.7 seconds, whichever comes first, with the two best lines; the progress line shows the depth actually reached. The lite network's evaluations run about a fifth smaller than full-size Stockfish's, so the review scales them by 1.2 (`EVAL_SCALE`) to match the winning-chances curve the grades are made for. Measured on 400 moves of club-level games against full-size Stockfish 19 at depth 20, the review gives the same grade on about 70% of moves and an accuracy within about 1 point. Stockfish 10 managed 52%, with accuracies 12 points too low, partly because its Contempt setting tilted every evaluation towards the side to move.
 - **The Stockfish bot** keeps its recipe (search depth, thinking time, a weighted choice among the best four moves, random moves at the lowest ratings). Stockfish 19 plays that recipe much stronger, so each Elo setting now uses the notch of the recipe that scored even against the old Stockfish 10 bot at the same setting (`ELO_RECIPE` in `front/app.html`). A setting therefore means what it meant before.
 - **The top-10 bots** avoid draws in their own move picker (`front/personas.js`), because modern Stockfish has no Contempt option: a move Stockfish rates a dead draw, or one that repeats a position, counts as worse by that player's contempt.
+- **Deep review** (`front/deep.js`) checks a reviewed game again with full-strength Stockfish 19: stockfish.js's "single-threaded" build with the full neural network, to depth 20 or 5 seconds per position. It is offered with a button once the normal review is done. Its `.wasm` is 99 MB, so it is not served from Railway but from Cloudflare R2 at `engine.woodpusher.org` (free downloads), and only downloaded when someone asks: the first click says how big it is, the second downloads it. The page downloads the file itself, checks its SHA-256, keeps it in Cache Storage (removable under Settings → Deep review) and compiles it once; the engine workers (`front/deep-engine.js`, loader `front/vendor/stockfish-full.js`) get the compiled module. One engine runs on phones and tablets, two on a computer with 8 GB of memory and four cores; each takes about 400 MB. Whether the file is on R2 is asked of this server (`/api/deep-engine`, `server/deep-engine.js`), so a visitor's browser only contacts R2 when they start a deep review, and the button stays hidden until the file is there. Measured on two test games against an even deeper search (full Stockfish 19 at depth 24): accuracy within about 2 points (the lite review: about 5), one of 11 blunders graded as something milder (the lite review: two), at about 4 seconds per position instead of 1.4. The share of moves with exactly the same grade hardly changes (about 75% for both), because many moves sit right on a boundary between two grades.
+
+### Setting up the deep review engine on Cloudflare R2
+
+1. In the Cloudflare dashboard, open **R2 object storage** and enable R2 (the free plan: 10 GB of storage, downloads free; Cloudflare asks for a payment method).
+2. **Create bucket**, for example `woodpusher-engine`.
+3. **Upload** `stockfish-19-single.wasm` from the [stockfish.js 19.0.1 release](https://github.com/nmrugg/stockfish.js/releases/tag/v19.0.1) (direct link: `https://github.com/nmrugg/stockfish.js/releases/download/v19.0.1/stockfish-19-single.wasm`, 99,169,054 bytes). Keep the name.
+4. Bucket **Settings → Custom Domains → Add**: `engine.woodpusher.org`, then **Connect Domain**.
+5. Bucket **Settings → CORS Policy → Add CORS policy**, JSON tab:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://www.woodpusher.org", "https://woodpusher.org", "http://localhost:3000"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "MaxAgeSeconds": 86400
+  }
+]
+```
+
+Within about five minutes the server notices the file and the Deep review button appears after a review. A new engine version goes up under a new file name, with `DEEP.url`, `bytes` and `sha256` in `front/deep.js` and `DEEP_ENGINE_URL` in `server/deep-engine.js` updated to match.
 
 To move to a newer stockfish.js: `npm pack stockfish@<version>`, copy `bin/stockfish-<v>-lite-single.js` and `.wasm` to `front/vendor/stockfish.js` and `stockfish.wasm`, `bin/stockfish-<v>-asm.js` to `stockfish.asm.js` and `Copying.txt` to `STOCKFISH-COPYING.txt`, update `SF_VERSION` and the CDN line in `front/app.html`, run `npm run build:front`, then check `EVAL_SCALE` and `ELO_RECIPE` again with the scripts in `tools/engine-check/`:
 
@@ -129,6 +152,7 @@ node test/restart.mjs    # a game survives a server restart
 python3 test/e2e.py      # two real browsers (needs Playwright)
 python3 test/premove.py  # premoves online and against Stockfish, in two real browsers
 python3 test/review.py   # review grades and notes on sample games, and Play through stopping at the right moves
+DEEP_WASM=stockfish-19-single.wasm python3 test/deep.py   # deep review: download, check, keep, stop, remove (as root: it plays engine.woodpusher.org on port 443)
 ```
 
 Optional settings for testing: `PUZZLE_IMPORT=off` skips the puzzle download, `PUZZLE_SOURCE` points it at another file (`node test/make-puzzle-sample.mjs` makes a small one; `MOCK_PUZZLES=<file> node test/mock-sites.mjs` serves it), `PUZZLE_PER_BAND` sets how many puzzles to keep per 50 rating points (default 700), and `FAIRPLAY=off` turns the fair-play check off.

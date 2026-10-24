@@ -13,7 +13,7 @@ const trainer = ['trainer.js', 'online.js', 'importer.js', 'sync.js', 'players.j
 const must = (cond, msg) => { if (!cond) { console.error('build failed:', msg); process.exit(1); } };
 must(html.includes('/*TRAINER*/'), 'trainer marker');
 must(html.includes('<!--DATA-->'), 'data marker');
-const styles = ['styles.js', 'profile.js', 'opening.js', 'personas.js', 'commentary.js'].map(f => read(F(f))).join('\n');
+const styles = ['styles.js', 'profile.js', 'opening.js', 'personas.js', 'commentary.js', 'deep.js'].map(f => read(F(f))).join('\n');
 must(html.includes('/*STYLES*/'), 'styles marker');
 html = html.replace('/*STYLES*/', () => styles);
 html = html.replace('/*TRAINER*/', () => trainer);
@@ -33,11 +33,15 @@ must(!html.includes('fonts.googleapis.com'), 'google fonts removed');
 const KEYS = '<span>Keys: ← → step · Home / End · F flips · Space plays a review</span>';
 must(html.includes(KEYS), 'keys line');
 html = html.replace(KEYS, '<span><span id="footInstall" hidden><a href="#" data-install>Install the app</a> · </span><a href="/leaderboard">Leaderboard</a> · <a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a> · Keys: ← → step · Home / End · F flips · Space plays a review</span>');
-for (const [a, b] of [["const BOOK_BASE = 'books/';", "const BOOK_BASE = '/books/';"], ["url: 'stockfish.js'", "url: '/stockfish.js'"], ["url: 'stockfish.asm.js'", "url: '/stockfish.asm.js'"], ["s.src = 'chess.js'", "s.src = '/chess.js'"]]) { must(app.includes(a), a); app = app.replace(a, b); }
+for (const [a, b] of [["const BOOK_BASE = 'books/';", "const BOOK_BASE = '/books/';"], ["url: 'stockfish.js'", "url: '/stockfish.js'"], ["url: 'stockfish.asm.js'", "url: '/stockfish.asm.js'"], ["s.src = 'chess.js'", "s.src = '/chess.js'"], ["worker: 'deep-engine.js'", "worker: '/deep-engine.js'"]]) { must(app.includes(a), a); app = app.replace(a, b); }
+// Deep review: the engine file's address is in front/deep.js and, for the availability check and the
+// security policy, in server/deep-engine.js. Both must name the same file.
+const deepUrl = (app.match(/url: '(https:\/\/[^']+\.wasm)'/) || [])[1];
+must(deepUrl && read(path.join(root, 'server', 'deep-engine.js')).includes(`'${deepUrl}'`), 'deep engine address in front/deep.js and server/deep-engine.js');
 // The website serves its own engine files, so the CDN copy of the engine (for app.html on its own) goes
-const cdnEngine = /\n  \/\/ Only for opening app\.html on its own[^\n]*\n[^\n]*\n  \{ url: 'https:\/\/cdn\.jsdelivr\.net\/npm\/stockfish@[^\n]*blob: true \},/;
+const cdnEngine = /\n  \/\/ Only for opening app\.html on its own[^\n]*\n[^\n]*\n  \{ url: 'https:\/\/unpkg\.com\/stockfish@[^\n]*blob: true \},/;
 must(cdnEngine.test(app), 'CDN engine line'); app = app.replace(cdnEngine, '');
-must(!app.includes('cdn.jsdelivr.net') && !app.includes('cdnjs.cloudflare.com'), 'no CDN left in app.js');
+must(!app.includes('unpkg.com') && !app.includes('cdn.jsdelivr.net') && !app.includes('cdnjs.cloudflare.com'), 'no CDN left in app.js');
 const cut = html.indexOf('</style>') + '</style>'.length;
 const page = `<!doctype html>
 <html lang="en">
@@ -70,7 +74,9 @@ fs.writeFileSync(P('look.js'), lookM[1].trim() + '\n');
 fs.writeFileSync(P('data.js'), ['openings.js', 'puzzles.js', 'personas.js'].filter(f => fs.existsSync(F('data/' + f))).map(f => read(F('data/' + f))).join('\n'));
 fs.rmSync(P('books'), { recursive: true, force: true }); fs.mkdirSync(P('books'), { recursive: true });
 if (fs.existsSync(F('data/books'))) for (const f of fs.readdirSync(F('data/books'))) fs.copyFileSync(F('data/books/' + f), P('books/' + f));
-for (const f of ['stockfish.js', 'stockfish.wasm', 'stockfish.asm.js', 'chess.js']) fs.copyFileSync(F('vendor/' + f), P(f));
+for (const f of ['stockfish.js', 'stockfish.wasm', 'stockfish.asm.js', 'stockfish-full.js', 'chess.js']) fs.copyFileSync(F('vendor/' + f), P(f));
+// Deep review: the worker that runs full Stockfish 19 (its 99 MB .wasm is downloaded from R2, see front/deep.js)
+fs.copyFileSync(F('deep-engine.js'), P('deep-engine.js'));
 fs.copyFileSync(F('privacy.html'), P('privacy.html'));
 // The page for addresses that don't exist (sent by server/index.js with status 404)
 fs.copyFileSync(F('404.html'), P('404.html'));
@@ -97,10 +103,10 @@ stamp('app.js', [["const BOOK_QS = '';", `const BOOK_QS = '${q}';`]]);
 // stockfish.asm.js, the fallback for very old browsers, is left out: it is cached only if it is used.
 const woff = fs.readdirSync(P('fonts')).filter(f => f.endsWith('.woff2')).sort();
 const icons = fs.readdirSync(P('icons')).sort(); const books = fs.readdirSync(P('books')).sort();
-const pre = ['/', `/app.js${q}`, `/data.js${q}`, `/look.js${q}`, `/chess.js${q}`, `/fonts/fonts.css${q}`, `/favicon.svg${q}`, '/stockfish.js', '/stockfish.wasm', '/manifest.webmanifest', '/privacy.html',
+const pre = ['/', `/app.js${q}`, `/data.js${q}`, `/look.js${q}`, `/chess.js${q}`, `/fonts/fonts.css${q}`, `/favicon.svg${q}`, '/stockfish.js', '/stockfish.wasm', '/stockfish-full.js', '/deep-engine.js', '/manifest.webmanifest', '/privacy.html',
   ...woff.map(f => '/fonts/' + f), ...icons.map(f => '/icons/' + f), ...books.map(f => `/books/${f}${q}`)];
 const SV = crypto.createHash('sha256');
-for (const f of ['index.html', 'app.js', 'data.js', 'look.js', 'chess.js', 'stockfish.js', 'stockfish.wasm', 'manifest.webmanifest', 'privacy.html', ...woff.map(f => 'fonts/' + f), ...icons.map(f => 'icons/' + f), ...books.map(f => 'books/' + f)]) SV.update(fs.readFileSync(P(f)));
+for (const f of ['index.html', 'app.js', 'data.js', 'look.js', 'chess.js', 'stockfish.js', 'stockfish.wasm', 'stockfish-full.js', 'deep-engine.js', 'manifest.webmanifest', 'privacy.html', ...woff.map(f => 'fonts/' + f), ...icons.map(f => 'icons/' + f), ...books.map(f => 'books/' + f)]) SV.update(fs.readFileSync(P(f)));
 let sw = read(F('sw.js'));
 must(sw.includes("'__VERSION__'") && sw.includes('[/*PRECACHE*/]'), 'service worker markers');
 sw = sw.replace("'__VERSION__'", JSON.stringify(SV.digest('hex').slice(0, 10))).replace('[/*PRECACHE*/]', JSON.stringify(pre, null, 0));

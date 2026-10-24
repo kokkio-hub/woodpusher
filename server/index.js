@@ -15,6 +15,7 @@ import { playersRouter } from './players.js';
 import { puzzlesRouter, startPuzzleImport } from './puzzles.js';
 import { moderationRouter, pruneReports } from './moderation.js';
 import { FairPlay } from './fairplay.js';
+import { deepEngineRouter, warmDeepEngine, DEEP_ENGINE_ORIGIN } from './deep-engine.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const PROD = process.env.NODE_ENV === 'production';
@@ -39,7 +40,8 @@ app.use(helmet({
       'font-src': ["'self'"],
       'img-src': ["'self'", 'data:', 'blob:'],
       'worker-src': ["'self'", 'blob:'],
-      'connect-src': ["'self'", (req) => `wss://${req.headers.host}`, (req) => `ws://${req.headers.host}`],
+      // DEEP_ENGINE_ORIGIN: the page downloads the deep review engine from there (front/deep.js)
+      'connect-src': ["'self'", (req) => `wss://${req.headers.host}`, (req) => `ws://${req.headers.host}`, DEEP_ENGINE_ORIGIN],
       'upgrade-insecure-requests': PROD ? [] : null,
     },
   },
@@ -88,6 +90,7 @@ app.use('/api', progressRouter());
 app.use('/api', playersRouter());
 app.use('/api', puzzlesRouter());
 app.use('/api', moderationRouter());
+app.use('/api', deepEngineRouter());
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 // Caching: files the page loads with a build version (?v=…) never change under that address, so
 // browsers may keep them for a year. Everything else, the page itself included, is checked with the
@@ -113,6 +116,7 @@ await lobby.restore();
 server.listen(PORT, () => console.log(`Woodpusher listening on port ${PORT}`));
 // In the background: fill the puzzle table from the Lichess puzzle database the first time
 setTimeout(() => { startPuzzleImport(); }, 3000).unref();
+setTimeout(warmDeepEngine, 5000).unref();
 setTimeout(() => { fairplay.backlog().catch((e) => console.error('Fair play backlog', e.message)); }, 20000).unref();
 const prune = () => pruneReports().catch((e) => console.error('Reports', e.message));
 setTimeout(prune, 30000).unref(); setInterval(prune, 24 * 60 * 60 * 1000).unref();
