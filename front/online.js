@@ -555,6 +555,7 @@ window.WP_ONLINE = {
   canPremove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() !== ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
   leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: onModeChange,
+  inGame: () => !!ON.game,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
   login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
   logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Play chess online, against Stockfish, solve puzzles and learn openings on a hand-drawn wooden board.">
-<link rel="icon" href="/favicon.svg?v=a315e00ba3" type="image/svg+xml">
+<link rel="icon" href="/favicon.svg?v=1ea82a7d3f" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="application-name" content="Woodpusher">
@@ -16,10 +16,10 @@
 <meta name="theme-color" content="#f3f1ef">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Woodpusher</title>
-<link rel="stylesheet" href="/fonts/fonts.css?v=a315e00ba3">
-<script src="/look.js?v=a315e00ba3"></script>
+<link rel="stylesheet" href="/fonts/fonts.css?v=1ea82a7d3f">
+<script src="/look.js?v=1ea82a7d3f"></script>
 <style>
-/* Layout: a club-room desk in espresso leather, coloured after the logo. The wooden board holds the left of the table; a tan-trimmed stand on the right carries the twin-dial clock, the controls and a paper score sheet. */
+/* Layout, like chess.com: the menu down the left side (a row of buttons on phones), the wooden board in the middle with a player bar above and below it (name, rating, captured pieces, clock), and beside it a panel with tabs, the move list and the move and game buttons. Coloured after the logo: espresso leather, tan and walnut. */
 :root {
   /* espresso, tan and walnut from the logo (on-dark version) */
   --leather: #17110d;
@@ -91,8 +91,57 @@ button { font: inherit; color: inherit; }
 .lk-knight { height: calc(var(--lk) * 1.4); width: auto; aspect-ratio: 120 / 140; display: block; flex: none; overflow: visible; }
 .lk-knight { --k-fill: var(--brass); --k-cut: var(--leather); }
 .lk-word { font-family: var(--f-display); font-weight: 600; letter-spacing: -.035em; color: var(--ivory); padding-bottom: .06em; white-space: nowrap; }
-.brand-sub { font-family: var(--f-display); font-weight: 400; color: var(--ivory-dim); font-size: 14px; letter-spacing: .02em; padding-left: 14px; border-left: 1px solid rgba(var(--line),.35); line-height: 1.2; }
 .top-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* phones: the menu is the row of buttons it always was; only Settings keeps its icon */
+.nav-ic { display: none; width: 16px; height: 16px; flex: none; fill: currentColor; }
+#btnSettings .nav-ic { display: block; }
+.lbl-s { display: none; }
+
+/* ---------- wide screens: the menu runs down the left side, like chess.com ----------
+   980–1279px: a narrow column of icons with short names under them. From 1280px: icons with the full names. */
+:root { --navw: 0px; }
+@media (min-width: 980px) {
+  :root { --navw: 84px; }
+  body { padding-left: calc(var(--navw) + max(16px, env(safe-area-inset-left, 0px))); }
+  .topbar {
+    position: fixed; z-index: 30; left: 0; top: 0; bottom: 0; width: var(--navw); max-width: none; margin: 0; box-sizing: border-box;
+    flex-direction: column; flex-wrap: nowrap; align-items: stretch; justify-content: flex-start; gap: 16px;
+    padding: 16px 8px calc(12px + env(safe-area-inset-bottom, 0px)); overflow-y: auto; scrollbar-width: none;
+    border-bottom: 0; border-right: 1px solid rgba(var(--line),.2);
+    background: linear-gradient(180deg, var(--leather-hi), var(--leather) 70%);
+  }
+  .brand { justify-content: center; padding: 4px 0 8px; }
+  .brand .lockup { --lk: 26px; }
+  .brand .lk-word { display: none; }
+  .top-actions { flex-direction: column; flex-wrap: nowrap; gap: 4px; flex: 1; }
+  .topbar .nav-item {
+    position: relative; flex-direction: column; gap: 5px; padding: 10px 2px 9px; min-height: 0;
+    border: 0; border-radius: 8px; background: transparent; box-shadow: none;
+    font: 600 12px/1.15 var(--f-display); color: var(--ivory-dim); text-align: center;
+  }
+  .topbar .nav-item:hover { background: rgba(var(--line),.09); color: var(--ivory); }
+  .topbar .nav-item[aria-current="page"], :root[data-look="light"] .topbar .nav-item[aria-current="page"] { background: rgba(var(--line),.14); color: var(--ivory); }
+  .topbar .nav-item[aria-current="page"]::before { content: ""; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brass); }
+  .topbar .nav-item.armed, :root[data-look="light"] .topbar .nav-item.armed { background: #8e2a22; color: #fff; }
+  .nav-ic, #btnSettings .nav-ic { display: block; width: 26px; height: 26px; }
+  .topbar .nav-item .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .topbar .nav-item .lbl-s { display: block; }
+  .topbar .nav-item.armed .lbl { position: static; width: auto; height: auto; clip: auto; white-space: normal; }
+  .topbar .nav-item.armed .lbl-s { display: none; }
+  #btnSettings { margin-top: auto; }
+}
+@media (min-width: 1280px) {
+  :root { --navw: 212px; }
+  .topbar { padding: 20px 14px calc(14px + env(safe-area-inset-bottom, 0px)); gap: 24px; }
+  .brand { justify-content: flex-start; padding: 4px 0 8px 10px; }
+  .brand .lockup { --lk: 23px; }
+  .brand .lk-word { display: inline; }
+  .topbar .nav-item { flex-direction: row; justify-content: flex-start; gap: 14px; padding: 11px 12px; font-size: 16px; text-align: left; }
+  .topbar .nav-item[aria-current="page"]::before { left: -14px; }
+  .nav-ic, #btnSettings .nav-ic { width: 24px; height: 24px; }
+  .topbar .nav-item .lbl { position: static; width: auto; height: auto; clip: auto; }
+  .topbar .nav-item .lbl-s { display: none; }
+}
 
 /* ---------- buttons ---------- */
 .btn {
@@ -120,29 +169,35 @@ button { font: inherit; color: inherit; }
   max-width: 1180px; margin: 0 auto; padding-block: 18px 28px;
   display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; justify-items: center;
 }
+/* Wide screens: the board column sets the height and the panel beside it matches it (contain: size keeps the
+   panel's own content from stretching the row), so the board, both players and the move buttons fit on one screen. */
 @media (min-width: 980px) {
-  .room { grid-template-columns: auto 360px; justify-content: center; align-items: start; gap: 30px; }
+  .room { grid-template-columns: auto 360px; justify-content: center; align-items: stretch; gap: 26px; padding-block: 14px 22px; }
 }
 .table-left { width: calc(var(--bw) + var(--evw)); max-width: 100%; display: flex; flex-direction: column; gap: 6px; }
 
-/* ---------- player plates ---------- */
-.plate { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 46px; padding-block: 4px; padding-left: var(--evw); }
+/* ---------- player bars: name and rating, captured pieces under them, the clock on the right ---------- */
+.plate { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding-block: 3px; padding-left: var(--evw); }
 .who { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.who .pc-ic { width: 32px; height: 32px; flex: none; }
-.who-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
-.who-name { font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.who-sub { font-size: 13.5px; color: var(--ivory-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who .pc-ic { width: 40px; height: 40px; flex: none; box-sizing: border-box; padding: 4px; border-radius: 6px; background: rgba(var(--line),.1); box-shadow: inset 0 0 0 1px rgba(var(--line),.22); }
+.who .pc-ic svg { width: 100%; height: 100%; display: block; }
+.who-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; line-height: 1.2; }
+.who-line { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.who-name { font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 2em; }
+.who-sub { font-size: 14px; color: var(--ivory-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 100 auto; min-width: 0; }
 .thinking { font-family: var(--f-fell); font-style: italic; color: var(--brass-hi); }
 .thinking::after { content: "…"; display: inline-block; width: 1.1em; animation: dots 1.2s steps(4) infinite; overflow: hidden; vertical-align: bottom; }
 @keyframes dots { from { width: 0; } to { width: 1.1em; } }
 .plate-right { display: flex; align-items: center; gap: 10px; flex: none; }
-.caps { display: flex; align-items: center; min-height: 22px; }
-.caps svg { width: 22px; height: 22px; margin-right: -7px; }
-.caps .adv { margin-left: 10px; font-size: 14px; color: var(--ivory-dim); font-weight: 600; }
-.tchip { font: 600 19px/1 var(--f-body); padding: 7px 10px; border-radius: 4px; background: rgba(var(--well), calc(.32 * var(--well-k))); border: 1px solid rgba(var(--line),.3); min-width: 74px; text-align: center; font-variant-numeric: tabular-nums; }
+.caps { display: flex; align-items: center; min-height: 18px; }
+.caps svg { width: 19px; height: 19px; margin-right: -6px; }
+.caps .adv { margin-left: 9px; font-size: 13.5px; color: var(--ivory-dim); font-weight: 700; }
+.tchip { font: 600 19px/1 var(--f-body); padding: 7px 10px; border-radius: 5px; background: rgba(var(--well), calc(.32 * var(--well-k))); border: 1px solid rgba(var(--line),.3); min-width: 74px; text-align: center; font-variant-numeric: tabular-nums; color: var(--ivory-dim); transition: background .15s, color .15s; }
 .tchip.on { background: var(--paper); color: var(--ink); border-color: var(--brass); }
 .tchip.low { background: #8e2a22; color: #fff; border-color: #e07a6e; }
-@media (min-width: 980px) { .tchip { display: none; } }
+@media (min-width: 980px) {
+  .tchip { font-size: 24px; padding: 8px 14px; min-width: 112px; text-align: right; letter-spacing: .01em; }
+}
 
 /* ---------- board ---------- */
 .board-row { display: flex; gap: 10px; align-items: stretch; }
@@ -234,25 +289,40 @@ button { font: inherit; color: inherit; }
 .banner-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .banner-actions .btn:not(.btn-brass) { color: var(--ink); border-color: #c29a72; background: rgba(0,0,0,.04); }
 .banner-close { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border: 0; background: none; color: var(--ink-soft); cursor: pointer; font-size: 20px; line-height: 1; border-radius: 3px; }
-.board-tools { display: flex; justify-content: center; gap: 6px; padding-top: 8px; padding-left: var(--evw); flex-wrap: wrap; }
 .view-note { text-align: center; font-family: var(--f-fell); font-style: italic; color: var(--brass-hi); font-size: 15px; min-height: 22px; padding-left: var(--evw); }
 
-/* ---------- side stand ---------- */
-.side { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 16px; }
-@media (min-width: 980px) { .side { width: 360px; } }
-.clock-stand { position: relative; }
-.dclock { display: flex; flex-direction: column; gap: 6px; width: 290px; max-width: 100%; }
-.dc-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 5px 5px 5px 10px; border-radius: 7px; background: rgba(var(--well), calc(.28 * var(--well-k))); border: 1px solid rgba(var(--line),.28); transition: border-color .2s, background .2s; }
-.dc-ic { width: 22px; height: 22px; display: block; }
-.dc-ic svg { width: 100%; height: 100%; display: block; }
-.dc-name { font-weight: 600; font-size: 14.5px; color: var(--ivory-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.dc-time { font-family: "Share Tech Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 26px; line-height: 1; letter-spacing: .02em; padding: 7px 10px 6px; min-width: 96px; text-align: right; border-radius: 5px; color: #a3968a; background: #0e0a07; box-shadow: inset 0 1px 4px rgba(0,0,0,.85), 0 0 0 1px rgba(var(--line),.18); font-variant-numeric: tabular-nums; transition: color .2s, text-shadow .2s; }
-.dc-row.on { border-color: var(--brass); background: rgba(var(--line),.1); }
-.dc-row.on .dc-name { color: var(--ivory); }
-.dc-row.on .dc-time { color: #f4ead0; text-shadow: 0 0 8px rgba(244,234,208,.35); }
-.dc-row.low .dc-time { color: #ff8f80; text-shadow: 0 0 8px rgba(255,120,100,.35); }
-.dc-row.out .dc-time { color: #ff6b5a; }
-@media (max-width: 979px) { .clock-stand { display: none; } }
+/* ---------- the panel beside the board ---------- */
+.side { width: 100%; max-width: 560px; display: flex; flex-direction: column; box-sizing: border-box; border-radius: 8px; border: 1px solid rgba(var(--line),.3); background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(0,0,0,.14)); box-shadow: inset 0 1px 0 rgba(255,235,190,.06), 0 12px 26px -16px rgba(0,0,0,.7); }
+.side-tabs { display: flex; gap: 4px; padding: 0 10px; border-bottom: 1px solid rgba(var(--line),.25); flex: none; }
+.side-tab { flex: 1 1 0; min-width: 0; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 13px 6px 11px; font: 600 15px/1.1 var(--f-display); color: var(--ivory-dim); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-tab:hover { color: var(--ivory); }
+.side-tab[aria-pressed="true"] { color: var(--brass-hi); border-bottom-color: var(--brass-hi); }
+.side-body { display: flex; flex-direction: column; gap: 16px; padding: 16px; min-height: 0; }
+.side-body > [data-tab-off] { display: none !important; }
+/* the cards inside the panel lose their own frame: the panel is the frame */
+.side-body > .card { background: none; border: 0; box-shadow: none; padding: 0; border-radius: 0; }
+:root[data-look="light"] .side-body > .card { background: none; box-shadow: none; }
+.side.has-tabs #setupTitle, .side.has-tabs #ctaTitle { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.side.has-tabs .sheet-head { display: none; }
+.side .sheet-players { display: none; }               /* the player bars by the board already name both players */
+.side-foot { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid rgba(var(--line),.2); flex: none; }
+.board-tools { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.board-tools .icon-btn { flex: 1 1 0; width: auto; min-width: 40px; }
+.board-tools .ap-tool { flex: 2 1 auto; }
+@media (min-width: 980px) {
+  .side { width: 360px; max-width: none; contain: size; overflow: hidden; }
+  .side-body { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(var(--line),.4) transparent; }
+  /* Play stays in reach at the bottom of the panel while the options above it scroll */
+  #btnPlay { position: sticky; bottom: 0; z-index: 2; }
+  /* the move list fills the panel and scrolls on its own, so the current move can be kept in view */
+  .side-body > .sheet { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .side-body > .sheet .mlist { flex: 1 1 auto; max-height: none; min-height: 132px; }
+}
+@media (max-width: 979px) {
+  /* phones: move and game buttons come first, right under the board, as before */
+  .side-foot { order: -1; border-top: 0; border-bottom: 1px solid rgba(var(--line),.2); padding: 12px 14px; }
+  .side-body { padding: 14px; }
+}
 .card {
   background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(0,0,0,.14));
   border: 1px solid rgba(var(--line),.3); border-radius: 6px; padding: 18px;
@@ -523,7 +593,7 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .form label.check { flex-direction: row; gap: 10px; font-size: inherit; letter-spacing: normal; text-transform: none; color: var(--ivory); }
 .form label.check input { margin: 0; flex: none; }
 
-/* ---------- opening animation: the logo draws itself, then flies into the top bar ---------- */
+/* ---------- opening animation: the logo draws itself, then flies into the menu ---------- */
 .opening { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; cursor: pointer; animation: op-out .5s ease 3.2s forwards; }
 .op-bg { position: absolute; inset: 0; background: radial-gradient(110% 75% at 50% 42%, #251a12, #17110d 58%, #0c0805); }
 .op-lockup { --lk: clamp(36px, 8.2vw, 80px); position: relative; transform-origin: 50% 50%; will-change: transform; }
@@ -562,12 +632,11 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 :root[data-look="light"] .btn-brass:hover { background: linear-gradient(180deg, #96613b, #86522f 55%, #764727); border-color: #5c3a21; }
 :root[data-look="light"] .seg-btn[aria-pressed="true"], :root[data-look="light"] .tc-btn[aria-pressed="true"], :root[data-look="light"] .tab[aria-current="page"], :root[data-look="light"] .tchip.on { background: #7b4b2a; color: #fff; border-color: #7b4b2a; box-shadow: none; }
 :root[data-look="light"] .card { background: #ffffff; box-shadow: 0 1px 0 rgba(36,23,15,.04), 0 12px 26px -20px rgba(36,23,15,.4); }
+:root[data-look="light"] .side { background: #ffffff; box-shadow: 0 1px 0 rgba(36,23,15,.04), 0 12px 26px -20px rgba(36,23,15,.4); }
+@media (min-width: 980px) { :root[data-look="light"] .topbar { background: #ffffff; } }
 :root[data-look="light"] .modal { box-shadow: 0 30px 60px rgba(36,23,15,.28); }
 :root[data-look="light"] .modal-back { background: rgba(36,23,15,.38); }
 :root[data-look="light"] .board-wrap { box-shadow: 0 30px 50px -24px rgba(36,23,15,.5), 0 8px 18px rgba(36,23,15,.18), 0 0 0 1px rgba(36,23,15,.3); }
-:root[data-look="light"] .dc-time { background: #ece6e0; color: #8a7f76; box-shadow: inset 0 1px 3px rgba(36,23,15,.2), 0 0 0 1px rgba(123,75,42,.2); }
-:root[data-look="light"] .dc-row.on .dc-time { color: #24170f; text-shadow: none; }
-:root[data-look="light"] .dc-row.low .dc-time, :root[data-look="light"] .dc-row.out .dc-time { color: #b3261e; text-shadow: none; }
 :root[data-look="light"] input[type=range]::-webkit-slider-runnable-track { background: linear-gradient(90deg, #d9c2ae, #b07a47); box-shadow: inset 0 1px 2px rgba(36,23,15,.25); }
 :root[data-look="light"] input[type=range]::-moz-range-track { background: linear-gradient(90deg, #d9c2ae, #b07a47); }
 :root[data-look="light"] input[type=range]::-webkit-slider-thumb { background: radial-gradient(circle at 35% 30%, #c99a72, #7b4b2a 62%, #4a2e19); border-color: #3f2716; box-shadow: 0 2px 4px rgba(36,23,15,.4); }
@@ -660,7 +729,7 @@ button.rbox[aria-pressed="true"] { border-color: var(--brass); box-shadow: inset
 .imp-row:hover .imp-go { text-decoration: underline; }
 .err { color: #ffb4a8; font-size: 14.5px; margin: 8px 0 0; }
 /* matchmaking bar: you are in the queue while you do something else */
-.qbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 45; display: flex; align-items: center; gap: 8px; padding: 7px 7px 7px 14px; border-radius: 999px; background: var(--leather-hi); border: 1px solid var(--brass); box-shadow: 0 10px 28px rgba(0,0,0,.35); max-width: calc(100vw - 24px); box-sizing: border-box; font-size: 14.5px; font-weight: 600; animation: qrise .25s ease; }
+.qbar { position: fixed; left: calc(50% + var(--navw) / 2); transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 45; display: flex; align-items: center; gap: 8px; padding: 7px 7px 7px 14px; border-radius: 999px; background: var(--leather-hi); border: 1px solid var(--brass); box-shadow: 0 10px 28px rgba(0,0,0,.35); max-width: calc(100vw - 24px); box-sizing: border-box; font-size: 14.5px; font-weight: 600; animation: qrise .25s ease; }
 @keyframes qrise { from { transform: translate(-50%, 10px); opacity: 0; } }
 .qbar .spinner { margin-right: 0; flex: none; }
 .qbar-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-variant-numeric: tabular-nums; }
@@ -705,17 +774,16 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
 .ad-closed { grid-template-columns: 0 minmax(0,1fr) auto; }
 .rv-mist { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .tc-wait { display: block; font-style: normal; font-size: 11px; font-weight: 700; color: var(--c-best); }
-.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60; background: var(--paper); color: var(--ink); padding: 10px 16px; border-radius: 4px; box-shadow: 0 0 0 1px #c29a72, 0 14px 30px rgba(0,0,0,.55); font-weight: 500; font-size: 15px; max-width: calc(100vw - 40px); animation: rise .25s ease; }
+.toast { position: fixed; left: calc(50% + var(--navw) / 2); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60; background: var(--paper); color: var(--ink); padding: 10px 16px; border-radius: 4px; box-shadow: 0 0 0 1px #c29a72, 0 14px 30px rgba(0,0,0,.55); font-weight: 500; font-size: 15px; max-width: calc(100vw - 40px); animation: rise .25s ease; }
 .foot { max-width: 1180px; margin: 0 auto; padding-block: 8px 26px; border-top: 1px solid rgba(var(--line),.18); color: var(--ivory-dim); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: space-between; }
 .foot a { color: var(--brass-hi); }
 @media (max-width: 979px) {
   .topbar { padding-block: 10px; }
   .brand .lockup { --lk: 22px; }
-  .brand-sub { display: none; }
   .mlist { max-height: 260px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pc, .dc-row, .dc-time, .evalbar .eb-fill, .rv-bar i { transition: none; }
+  .pc, .tchip, .evalbar .eb-fill, .rv-bar i { transition: none; }
   .banner-card, .toast, .qbar { animation: none; }
 }
 </style>
@@ -754,15 +822,16 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
       <svg class="lk-knight" viewBox="0 0 120 140" aria-hidden="true"><use href="#wpKnight"/></svg>
       <span class="lk-word" aria-hidden="true">Woodpusher</span>
     </a>
-    <span class="brand-sub">play, solve, study</span>
   </div>
+  <!-- On wide screens this is the menu down the left side (like chess.com); on phones a row of buttons under the logo.
+       .lbl is the full name, .lbl-s the short one for the narrow icon column; confirm prompts (armOrRun) write into .lbl. -->
   <nav class="top-actions" aria-label="Main">
-    <button class="btn btn-small tab" id="btnNew" aria-current="page">Play</button>
-    <button class="btn btn-small tab" id="btnOnline" hidden>Play online</button>
-    <button class="btn btn-small tab" id="btnPuzzles">Puzzles</button>
-    <button class="btn btn-small tab" id="btnOpenings">Openings</button>
-    <button class="btn btn-small tab" id="btnImport">Review a game</button>
-    <button class="btn btn-small" id="btnSettings" aria-haspopup="dialog"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.8 1.7 1l.4 2.6h4l.4-2.6c.6-.2 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5A3.5 3.5 0 1 1 13 8.5a3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>Settings</button>
+    <button class="btn btn-small nav-item tab" id="btnNew" aria-current="page"><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5.6" r="3.1"/><path d="M8.6 9.9h6.8l-.9 1.9H9.5zM9.9 12.6h4.2c.2 2.6.9 4.6 2.4 6.2H7.5c1.5-1.6 2.2-3.6 2.4-6.2zM5.8 19.7h12.4c.8 0 1.4.6 1.4 1.4v.6H4.4v-.6c0-.8.6-1.4 1.4-1.4z"/></svg><span class="lbl">Play</span><span class="lbl-s" aria-hidden="true">Play</span></button>
+    <button class="btn btn-small nav-item tab" id="btnOnline" hidden><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm7.9 9h-3.6a16 16 0 0 0-1.6-6.4A8 8 0 0 1 19.9 11zM12 4.1c1 1.3 2 3.7 2.3 6.9H9.7C10 7.8 11 5.4 12 4.1zM9.3 4.6A16 16 0 0 0 7.7 11H4.1a8 8 0 0 1 5.2-6.4zM4.1 13h3.6a16 16 0 0 0 1.6 6.4A8 8 0 0 1 4.1 13zm7.9 6.9c-1-1.3-2-3.7-2.3-6.9h4.6c-.3 3.2-1.3 5.6-2.3 6.9zm2.7-.5a16 16 0 0 0 1.6-6.4h3.6a8 8 0 0 1-5.2 6.4z"/></svg><span class="lbl">Play online</span><span class="lbl-s" aria-hidden="true">Online</span></button>
+    <button class="btn btn-small nav-item tab" id="btnPuzzles"><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.2 2.5a2.6 2.6 0 0 1 2.6 2.6v.9h4.4c.7 0 1.3.6 1.3 1.3v4.2h.9a2.6 2.6 0 0 1 0 5.2h-.9v3.5c0 .7-.6 1.3-1.3 1.3h-3.6v-.9a2.6 2.6 0 0 0-5.2 0v.9H4.8c-.7 0-1.3-.6-1.3-1.3v-3.6h.9a2.6 2.6 0 0 0 0-5.2h-.9V7.3C3.5 6.6 4.1 6 4.8 6h2.8v-.9a2.6 2.6 0 0 1 2.6-2.6z"/></svg><span class="lbl">Puzzles</span><span class="lbl-s" aria-hidden="true">Puzzles</span></button>
+    <button class="btn btn-small nav-item tab" id="btnOpenings"><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 5.2c3-1.4 6.2-1.2 8.6.6v14.4c-2.5-1.6-5.6-1.8-8.6-.6zM21.5 5.2c-3-1.4-6.2-1.2-8.6.6v14.4c2.5-1.6 5.6-1.8 8.6-.6z"/></svg><span class="lbl">Openings</span><span class="lbl-s" aria-hidden="true">Openings</span></button>
+    <button class="btn btn-small nav-item tab" id="btnImport"><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.4 2.6a7.8 7.8 0 0 1 6.3 12.4l4.6 4.6-1.7 1.7-4.6-4.6A7.8 7.8 0 1 1 10.4 2.6zm0 2.2a5.6 5.6 0 1 0 0 11.2 5.6 5.6 0 0 0 0-11.2z"/><path d="M6.9 12.2l2.3-2.6 1.9 1.6 2.9-3.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Review a game</span><span class="lbl-s" aria-hidden="true">Review</span></button>
+    <button class="btn btn-small nav-item" id="btnSettings" aria-haspopup="dialog"><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.8 1.7 1l.4 2.6h4l.4-2.6c.6-.2 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5A3.5 3.5 0 1 1 13 8.5a3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg><span class="lbl">Settings</span><span class="lbl-s" aria-hidden="true">Settings</span></button>
   </nav>
 </header>
 
@@ -787,125 +856,123 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
     </div>
     <div class="plate" id="plateBottom"></div>
     <div class="view-note" id="viewNote"></div>
-    <div class="board-tools" role="toolbar" aria-label="Move navigation">
-      <button class="btn icon-btn" id="navFirst" aria-label="First move" title="First move (Home)"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM19 5v14l-9-7z"/></svg></button>
-      <button class="btn icon-btn" id="navPrev" aria-label="Previous move" title="Previous move (←)"><svg viewBox="0 0 24 24"><path d="M16 5v14l-9-7z"/></svg></button>
-      <button class="btn ap-tool" id="navPlay" hidden title="Play through the game. It stops at brilliant and great moves, mistakes and blunders (Space)"></button>
-      <button class="btn icon-btn" id="navNext" aria-label="Next move" title="Next move (→)"><svg viewBox="0 0 24 24"><path d="M8 5v14l9-7z"/></svg></button>
-      <button class="btn icon-btn" id="navLast" aria-label="Last move" title="Last move (End)"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM5 5v14l9-7z"/></svg></button>
-      <button class="btn icon-btn" id="navFlip" aria-label="Flip board" title="Flip board (F)"><svg viewBox="0 0 24 24"><path d="M7 3 3 7l4 4V8h10V6H7zm10 10v3H7v2h10v3l4-4z"/></svg></button>
-    </div>
   </section>
-
-  <aside class="side" aria-label="Game controls">
-    <div class="clock-stand" id="clockStand"></div>
-
-    <section class="card" id="setupCard" aria-labelledby="setupTitle">
-      <h2 id="setupTitle">Play Stockfish</h2>
-      <p class="card-sub">Pick an opponent, your side, a strength and a clock.</p>
-      <div class="field">
-        <span class="field-label" id="lblOpp">Opponent</span>
-        <button class="opp-pick" id="oppPick" aria-haspopup="dialog" aria-describedby="lblOpp"></button>
-      </div>
-      <div class="field">
-        <span class="field-label" id="lblColor">Your pieces</span>
-        <div class="seg" role="group" aria-labelledby="lblColor" id="colorSeg">
-          <button class="seg-btn" data-color="w" id="colW"><span class="seg-ic" data-pc="wK"></span>White</button>
-          <button class="seg-btn" data-color="r" id="colR"><span class="seg-ic split"><span data-pc="wK"></span><span data-pc="bK"></span></span>Random</button>
-          <button class="seg-btn" data-color="b" id="colB"><span class="seg-ic" data-pc="bK"></span>Black</button>
+  <!-- The panel beside the board: tabs on top (renderSideTabs picks them per page), the content, and the move
+       buttons and game buttons at the bottom, right under the move list. On phones the bottom part comes first,
+       so the buttons stay right under the board. -->
+  <aside class="side" id="side" aria-label="Game panel">
+    <div class="side-tabs" id="sideTabs" role="group" aria-label="Panel" hidden></div>
+    <div class="side-body" id="sideBody">
+      <section class="card" id="setupCard" aria-labelledby="setupTitle">
+        <h2 id="setupTitle">Play Stockfish</h2>
+        <p class="card-sub">Pick an opponent, your side, a strength and a clock.</p>
+        <div class="field">
+          <span class="field-label" id="lblOpp">Opponent</span>
+          <button class="opp-pick" id="oppPick" aria-haspopup="dialog" aria-describedby="lblOpp"></button>
         </div>
-      </div>
-      <div class="field">
-        <div class="field-row"><label class="field-label" for="lvl">Strength (Elo)</label><output id="lvlOut" for="lvl"></output></div>
-        <input type="range" id="lvl" min="400" max="2800" step="50" value="1200">
-        <div class="ticks" aria-hidden="true"><span style="left:0%">400</span><span style="left:25%">1000</span><span style="left:50%">1600</span><span style="left:75%">2200</span><span style="left:100%">2800</span></div>
-        <p class="hint-text" id="lvlBlurb"></p>
-        <p class="fine-note">Ratings are estimates. This version of Stockfish has no official Elo setting, so Woodpusher tunes its depth, thinking time and move choice to match.</p>
-      </div>
-      <div class="field">
-        <span class="field-label" id="lblTc">Clock</span>
-        <div class="tc-grid" role="group" aria-labelledby="lblTc" id="tcGrid"></div>
-      </div>
-      <button class="btn btn-brass btn-play" id="btnPlay">Play</button>
-      <div class="engine-status" id="engineStatus" role="status">Stockfish is loading…</div>
-    </section>
-
-    <section class="card" id="reviewCta" aria-labelledby="ctaTitle">
-      <h2 id="ctaTitle">Review a game</h2>
-      <p class="card-sub" style="margin-bottom:0" id="ctaSub">Paste a PGN from Chess.com or Lichess and get every move graded, from best to blunder.</p>
-      <div class="cta-row">
-        <button class="btn" id="btnFindGames" hidden>Find my games</button>
-        <button class="btn" id="btnImport2">Paste a PGN</button>
-        <button class="btn" id="btnSample">Try Morphy's Opera Game</button>
-      </div>
-    </section>
-
-    <div class="actions" id="playActions" hidden>
-      <button class="btn" id="btnTakeback">Takeback</button>
-      <button class="btn" id="btnDraw">Offer draw</button>
-      <button class="btn" id="btnResign">Resign</button>
-    </div>
-    <div class="actions" id="pausedActions" hidden>
-      <button class="btn btn-brass" id="btnResume">Resume game</button>
-      <button class="btn" id="btnAbandon">Abandon</button>
-    </div>
-    <div class="actions" id="overActions" hidden>
-      <button class="btn btn-brass" id="btnReview">Review game</button>
-      <button class="btn" id="btnRematch">Rematch</button>
-    </div>
-
-    <section class="card stack" id="puzzlePanel" hidden aria-labelledby="pzTitle">
-      <div class="panel-head">
-        <div><h2 id="pzTitle">Puzzles</h2><p class="card-sub" style="margin:4px 0 0">Find the strongest move. Ask for a hint when you're stuck.</p></div>
-        <div class="rating-box"><small>Your rating</small><b id="pzRating">1200</b><span class="delta" id="pzDelta"></span></div>
-      </div>
-      <div class="pz-daily" id="pzDaily" hidden></div>
-      <div class="pz-status" id="pzStatus" aria-live="polite"></div>
-      <div class="pz-meta" id="pzMeta"></div>
-      <div class="actions">
-        <button class="btn" id="pzHint">Hint</button>
-        <button class="btn" id="pzSolution">Solution</button>
-        <button class="btn" id="pzRetry">Retry</button>
-        <button class="btn btn-brass" id="pzNext">Next puzzle</button>
-      </div>
-      <div><label class="field-label" for="pzTheme">Theme</label><select class="select" id="pzTheme"></select></div>
-      <div class="pz-stats" id="pzStats"></div>
-    </section>
-
-    <section class="card stack" id="lessonPanel" hidden aria-label="Opening lessons"></section>
-
-    <section class="card stack" id="onlinePanel" hidden aria-label="Play online"></section>
-
-    <section class="review" id="reviewPanel" hidden aria-labelledby="rvTitle">
-      <div class="rv-head"><h2 id="rvTitle">Game review</h2><button class="btn btn-small" id="btnExitReview">Done</button></div>
-      <div class="rv-progress" id="rvProgress"><div class="rv-bar"><i id="rvBar"></i></div><span id="rvText">Starting…</span></div>
-      <div class="acc" id="accRow"></div>
-      <div class="rv-mist" id="rvMist" hidden></div>
-      <div class="graph" id="graph" aria-label="Evaluation graph. Click to jump to a move." role="img"></div>
-      <div class="annot" id="annot" aria-live="polite"></div>
-      <div class="ap" id="apBox">
-        <div class="ap-row">
-          <button class="btn btn-brass ap-go" id="btnAutoPlay"></button>
-          <div class="ap-speed" role="group" aria-label="Playing speed" id="apSpeed">
-            <button class="ap-sp" data-sp="slow">Slow</button><button class="ap-sp" data-sp="normal">Normal</button><button class="ap-sp" data-sp="fast">Fast</button>
+        <div class="field">
+          <span class="field-label" id="lblColor">Your pieces</span>
+          <div class="seg" role="group" aria-labelledby="lblColor" id="colorSeg">
+            <button class="seg-btn" data-color="w" id="colW"><span class="seg-ic" data-pc="wK"></span>White</button>
+            <button class="seg-btn" data-color="r" id="colR"><span class="seg-ic split"><span data-pc="wK"></span><span data-pc="bK"></span></span>Random</button>
+            <button class="seg-btn" data-color="b" id="colB"><span class="seg-ic" data-pc="bK"></span>Black</button>
           </div>
         </div>
-        <p class="ap-note" id="apNote"></p>
+        <div class="field">
+          <div class="field-row"><label class="field-label" for="lvl">Strength (Elo)</label><output id="lvlOut" for="lvl"></output></div>
+          <input type="range" id="lvl" min="400" max="2800" step="50" value="1200">
+          <div class="ticks" aria-hidden="true"><span style="left:0%">400</span><span style="left:25%">1000</span><span style="left:50%">1600</span><span style="left:75%">2200</span><span style="left:100%">2800</span></div>
+          <p class="hint-text" id="lvlBlurb"></p>
+          <p class="fine-note">Ratings are estimates. This version of Stockfish has no official Elo setting, so Woodpusher tunes its depth, thinking time and move choice to match.</p>
+        </div>
+        <div class="field">
+          <span class="field-label" id="lblTc">Clock</span>
+          <div class="tc-grid" role="group" aria-labelledby="lblTc" id="tcGrid"></div>
+        </div>
+        <button class="btn btn-brass btn-play" id="btnPlay">Play</button>
+        <div class="engine-status" id="engineStatus" role="status">Stockfish is loading…</div>
+      </section>
+      <section class="card" id="reviewCta" aria-labelledby="ctaTitle">
+        <h2 id="ctaTitle">Review a game</h2>
+        <p class="card-sub" style="margin-bottom:0" id="ctaSub">Paste a PGN from Chess.com or Lichess and get every move graded, from best to blunder.</p>
+        <div class="cta-row">
+          <button class="btn" id="btnFindGames" hidden>Find my games</button>
+          <button class="btn" id="btnImport2">Paste a PGN</button>
+          <button class="btn" id="btnSample">Try Morphy's Opera Game</button>
+        </div>
+      </section>
+      <section class="card stack" id="puzzlePanel" hidden aria-labelledby="pzTitle">
+        <div class="panel-head">
+          <div><h2 id="pzTitle">Puzzles</h2><p class="card-sub" style="margin:4px 0 0">Find the strongest move. Ask for a hint when you're stuck.</p></div>
+          <div class="rating-box"><small>Your rating</small><b id="pzRating">1200</b><span class="delta" id="pzDelta"></span></div>
+        </div>
+        <div class="pz-daily" id="pzDaily" hidden></div>
+        <div class="pz-status" id="pzStatus" aria-live="polite"></div>
+        <div class="pz-meta" id="pzMeta"></div>
+        <div class="actions">
+          <button class="btn" id="pzHint">Hint</button>
+          <button class="btn" id="pzSolution">Solution</button>
+          <button class="btn" id="pzRetry">Retry</button>
+          <button class="btn btn-brass" id="pzNext">Next puzzle</button>
+        </div>
+        <div><label class="field-label" for="pzTheme">Theme</label><select class="select" id="pzTheme"></select></div>
+        <div class="pz-stats" id="pzStats"></div>
+      </section>
+      <section class="card stack" id="lessonPanel" hidden aria-label="Opening lessons"></section>
+      <section class="review" id="reviewPanel" hidden aria-labelledby="rvTitle">
+        <div class="rv-head"><h2 id="rvTitle">Game review</h2><button class="btn btn-small" id="btnExitReview">Done</button></div>
+        <div class="rv-progress" id="rvProgress"><div class="rv-bar"><i id="rvBar"></i></div><span id="rvText">Starting…</span></div>
+        <div class="acc" id="accRow"></div>
+        <div class="rv-mist" id="rvMist" hidden></div>
+        <div class="graph" id="graph" aria-label="Evaluation graph. Click to jump to a move." role="img"></div>
+        <div class="annot" id="annot" aria-live="polite"></div>
+        <div class="ap" id="apBox">
+          <div class="ap-row">
+            <button class="btn btn-brass ap-go" id="btnAutoPlay"></button>
+            <div class="ap-speed" role="group" aria-label="Playing speed" id="apSpeed">
+              <button class="ap-sp" data-sp="slow">Slow</button><button class="ap-sp" data-sp="normal">Normal</button><button class="ap-sp" data-sp="fast">Fast</button>
+            </div>
+          </div>
+          <p class="ap-note" id="apNote"></p>
+        </div>
+        <div class="rv-nav">
+          <button class="btn btn-small" id="btnPrevKey">← Previous mistake</button>
+          <button class="btn btn-small" id="btnNextKey">Next mistake →</button>
+        </div>
+        <table class="cls-table" id="clsTable"></table>
+      </section>
+      <section class="sheet" id="sheet" aria-label="Score sheet">
+        <div class="sheet-head"><span class="sheet-title">Score sheet</span><span class="sheet-tc" id="sheetTc"></span></div>
+        <dl class="sheet-players" id="sheetPlayers"></dl>
+        <div class="mhead" aria-hidden="true"><span>No.</span><span>White</span><span>Black</span></div>
+        <div class="mlist" id="mlist"></div>
+        <div class="sheet-result"><span id="sheetResult">Game not started</span><button class="btn-ink" id="btnCopyPgn">Copy PGN</button></div>
+      </section>
+      <section class="card stack" id="onlinePanel" hidden aria-label="Play online"></section>
+    </div>
+    <div class="side-foot" id="sideFoot">
+      <div class="board-tools" role="toolbar" aria-label="Move navigation">
+        <button class="btn icon-btn" id="navFirst" aria-label="First move" title="First move (Home)"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM19 5v14l-9-7z"/></svg></button>
+        <button class="btn icon-btn" id="navPrev" aria-label="Previous move" title="Previous move (←)"><svg viewBox="0 0 24 24"><path d="M16 5v14l-9-7z"/></svg></button>
+        <button class="btn ap-tool" id="navPlay" hidden title="Play through the game. It stops at brilliant and great moves, mistakes and blunders (Space)"></button>
+        <button class="btn icon-btn" id="navNext" aria-label="Next move" title="Next move (→)"><svg viewBox="0 0 24 24"><path d="M8 5v14l9-7z"/></svg></button>
+        <button class="btn icon-btn" id="navLast" aria-label="Last move" title="Last move (End)"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM5 5v14l9-7z"/></svg></button>
+        <button class="btn icon-btn" id="navFlip" aria-label="Flip board" title="Flip board (F)"><svg viewBox="0 0 24 24"><path d="M7 3 3 7l4 4V8h10V6H7zm10 10v3H7v2h10v3l4-4z"/></svg></button>
       </div>
-      <div class="rv-nav">
-        <button class="btn btn-small" id="btnPrevKey">← Previous mistake</button>
-        <button class="btn btn-small" id="btnNextKey">Next mistake →</button>
+      <div class="actions" id="playActions" hidden>
+        <button class="btn" id="btnTakeback">Takeback</button>
+        <button class="btn" id="btnDraw">Offer draw</button>
+        <button class="btn" id="btnResign">Resign</button>
       </div>
-      <table class="cls-table" id="clsTable"></table>
-    </section>
-
-    <section class="sheet" id="sheet" aria-label="Score sheet">
-      <div class="sheet-head"><span class="sheet-title">Score sheet</span><span class="sheet-tc" id="sheetTc"></span></div>
-      <dl class="sheet-players" id="sheetPlayers"></dl>
-      <div class="mhead" aria-hidden="true"><span>No.</span><span>White</span><span>Black</span></div>
-      <div class="mlist" id="mlist"></div>
-      <div class="sheet-result"><span id="sheetResult">Game not started</span><button class="btn-ink" id="btnCopyPgn">Copy PGN</button></div>
-    </section>
+      <div class="actions" id="pausedActions" hidden>
+        <button class="btn btn-brass" id="btnResume">Resume game</button>
+        <button class="btn" id="btnAbandon">Abandon</button>
+      </div>
+      <div class="actions" id="overActions" hidden>
+        <button class="btn btn-brass" id="btnReview">Review game</button>
+        <button class="btn" id="btnRematch">Rematch</button>
+      </div>
+    </div>
   </aside>
 </main>
 
@@ -992,10 +1059,10 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
 <div id="toastHost"></div>
 <div class="sr-only" aria-live="polite" id="live"></div>
 
-<script src="/data.js?v=a315e00ba3"></script>
-<script src="/chess.js?v=a315e00ba3"></script>
+<script src="/data.js?v=1ea82a7d3f"></script>
+<script src="/chess.js?v=1ea82a7d3f"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=a315e00ba3"></script>
+<script src="/app.js?v=1ea82a7d3f"></script>
 
 </body>
 </html>

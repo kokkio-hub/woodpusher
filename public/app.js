@@ -966,7 +966,7 @@ function wireUserSection() {
    espresso screen covers it from the very first paint. The drawing waits
    for startOpening(), which boot calls once the heavy start-up work is
    done, so nothing interrupts the knight mid-stroke. When the wordmark has
-   wiped in, the logo flies into the top bar while the backdrop fades and
+   wiped in, the logo flies into the menu while the backdrop fades and
    the room rises into view. A click, tap or key skips it; with reduced
    motion it simply shows the logo and fades. If the script never runs, a
    CSS fallback fades the screen out on its own.
@@ -995,10 +995,15 @@ function runOpening() {
       if (!fast) reveal(500);
       return;
     }
-    const k = H.height / S.height;
-    const dx = (H.left + H.width / 2) - (S.left + S.width / 2), dy = (H.top + H.height / 2) - (S.top + S.height / 2);
+    // In the narrow menu column the logo is the knight alone: the knight flies there and the word fades on the way
+    const tw = target.querySelector('.lk-word'); const knightOnly = !!tw && getComputedStyle(tw).display === 'none';
+    const K = knightOnly ? lk.querySelector('.op-knight').getBoundingClientRect() : S;
+    const k = H.height / K.height;
+    const ox = (K.left + K.width / 2) - (S.left + S.width / 2), oy = (K.top + K.height / 2) - (S.top + S.height / 2);
+    const dx = (H.left + H.width / 2) - (S.left + S.width / 2) - k * ox, dy = (H.top + H.height / 2) - (S.top + S.height / 2) - k * oy;
     el.querySelector('.op-bg').animate([{ opacity: 1 }, { opacity: 0 }], { duration: 520, delay: 80, easing: 'ease-in-out', fill: 'forwards' });
     reveal(620);
+    if (knightOnly) lk.querySelector('.op-word').animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: 'ease', fill: 'forwards' });
     lk.animate([{ transform: 'none' }, { transform: `translate(${dx}px, ${dy}px) scale(${k})` }], { duration: 680, easing: 'cubic-bezier(.6,0,.25,1)', fill: 'forwards' }).finished.then(done, done);
   };
   OPENING.leave = leave;
@@ -1039,7 +1044,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
-const BOOK_QS = '?v=a315e00ba3';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
+const BOOK_QS = '?v=1ea82a7d3f';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -1164,7 +1169,7 @@ function wireOpponents() {
     const p = personaById(b.dataset.opp);
     S.settings.opp = p ? p.id : null;
     if (p) { S.settings.elo = clamp(Math.round(Math.min(p.rating, ELO_MAX) / ELO_STEP) * ELO_STEP, ELO_MIN, ELO_MAX); loadBook(p.id); }
-    $('#oppModal').hidden = true; renderSetup(); renderPlates(); renderSheet(); setClockNames(); save(); $('#oppPick').focus();
+    $('#oppModal').hidden = true; renderSetup(); renderPlates(); renderSheet(); save(); $('#oppPick').focus();
   });
   if (!personaById(S.settings.opp)) S.settings.opp = null; else loadBook(S.settings.opp);
 }
@@ -1536,7 +1541,9 @@ function layoutBoard() {
   const wide = vw >= 980;
   const evw = S.mode === 'review' ? (wide ? 34 : 28) : 0;
   let size;
-  if (wide) size = Math.min(vw - 32 - 360 - 30 - evw, vh - 190, 700);
+  // beside the board: the menu on the left (--navw), the panel (360) and the gap (26); above and below it the player bars
+  const navw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--navw')) || 0;
+  if (wide) size = Math.min(vw - navw - 32 - 360 - 26 - evw, vh - 186, 820);
   else size = Math.min(vw - 32 - evw, 620);
   size = Math.max(250, Math.floor(size));
   document.documentElement.style.setProperty('--bw', size + 'px');
@@ -1907,14 +1914,8 @@ function commitUserMove(from, to, promo) {
 }
 
 /* =====================================================================
-   The clock: twin dials in a walnut case, flags rise near twelve
+   The clocks: one in each player bar, next to the player's name (like chess.com)
    ===================================================================== */
-const CLOCK = { ready: false };
-function buildClock() {
-  const row = (pos) => `<div class="dc-row" id="dc${pos}"><span class="dc-ic" id="dcIc${pos}" aria-hidden="true"></span><span class="dc-name" id="dcName${pos}"></span><span class="dc-time" id="dcTime${pos}">0:00</span></div>`;
-  $('#clockStand').innerHTML = `<div class="dclock" role="group" aria-label="Chess clock">${row('Top')}${row('Bot')}</div>`;
-  CLOCK.ready = true;
-}
 function fmtTime(ms, tenths) {
   if (ms <= 0) return '0:00';
   if (tenths && ms < 10000) return (Math.floor(ms / 100) / 10).toFixed(1);
@@ -1925,40 +1926,15 @@ function remaining(color) {
   const g = S.game; if (!g) return 0; const c = g.clock;
   return c.running === color && (S.mode === 'play' || S.mode === 'online') ? c[color] - (performance.now() - c.last) : c[color];
 }
-let lastClockText = {};
-// The clock next to the board mirrors the board: the top row belongs to the player at the top
-const clockColors = () => (S.orientation === 'w' ? { Top: 'b', Bot: 'w' } : { Top: 'w', Bot: 'b' });
 function updateClock() {
-  if (!CLOCK.ready) return;
   const g = S.game; const tc = g ? tcById(g.tc) : tcById(S.mode === 'online' && window.WP_ONLINE ? window.WP_ONLINE.tc() : S.settings.tc);
   const timed = tc.base > 0; const live = S.mode === 'play' || S.mode === 'online';
-  const cols = clockColors();
-  for (const pos of ['Top', 'Bot']) {
-    const color = cols[pos];
-    const rem = g ? Math.max(0, remaining(color)) : tc.base * 1000;
-    const txt = timed ? fmtTime(rem, true) : '∞';
-    if (lastClockText[pos] !== txt) { $('#dcTime' + pos).textContent = txt; lastClockText[pos] = txt; }
-    const row = $('#dc' + pos);
-    row.classList.toggle('on', !!(g && live && g.clock.running === color));
-    row.classList.toggle('low', !!(timed && g && rem > 0 && rem < 20000));
-    row.classList.toggle('out', !!(timed && g && rem <= 0));
-  }
-  // plate chips (phones)
   document.querySelectorAll('.tchip').forEach(ch => {
     const color = ch.dataset.color; const rem = g ? Math.max(0, remaining(color)) : tc.base * 1000;
     const txt = timed ? fmtTime(rem, true) : '∞'; if (ch.textContent !== txt) ch.textContent = txt;
     const on = g && live && g.clock.running === color; ch.classList.toggle('on', !!on);
     ch.classList.toggle('low', !!(timed && g && rem < 20000 && live));
   });
-}
-function setClockNames() {
-  if (!CLOCK.ready) return;
-  const L = S.line; const cols = clockColors();
-  const nm = (c) => (L ? L.names[c] : S.mode === 'online' ? (c === 'w' ? 'White' : 'Black') : (c === S.settings.color || (S.settings.color === 'r' && c === 'w') ? 'You' : botName(curPersona())));
-  for (const pos of ['Top', 'Bot']) {
-    const c = cols[pos]; $('#dcName' + pos).textContent = String(nm(c)).replace(/ style$/, '');
-    const ic = $('#dcIc' + pos); if (ic.dataset.c !== c) { ic.innerHTML = pieceSVG(c + 'K'); ic.dataset.c = c; }
-  }
 }
 
 /* =====================================================================
@@ -2081,6 +2057,8 @@ function startGame() {
   if (ENG.main) ENG.main.send('ucinewgame');
   setMode('play');
   renderCoords(); renderPieces(START_FEN, false); renderAll();
+  // On a phone, Play sits below the board: bring the board back into view for the first move
+  const tl = $('.table-left').getBoundingClientRect(); if (tl.top < 0) $('.table-left').scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   announce(`New game. You play ${pc === 'w' ? 'White' : 'Black'} against ${persona ? `a bot in the style of ${persona.name}` : 'Stockfish'} at about ${st.elo} Elo.`);
   if (pc === 'b') engineMove();
   save();
@@ -2240,13 +2218,12 @@ function setMode(m) {
   const prev = S.mode; S.mode = m;
   if (m !== 'review') apPause();
   if (m !== 'play' && m !== 'online') S.premoves = [];
-  $('#setupCard').hidden = m !== 'idle';
+  $('#setupCard').hidden = m !== 'idle' && m !== 'over';   // after a game it waits under "New game"
   $('#reviewCta').hidden = m !== 'idle';
   $('#playActions').hidden = m !== 'play';
   $('#pausedActions').hidden = m !== 'paused';
   $('#overActions').hidden = m !== 'over';
   $('#reviewPanel').hidden = m !== 'review';
-  $('#clockStand').hidden = m === 'review' || m === 'puzzle' || m === 'lesson';
   $('#puzzlePanel').hidden = m !== 'puzzle';
   $('#lessonPanel').hidden = m !== 'lesson';
   $('#onlinePanel').hidden = m !== 'online';
@@ -2255,8 +2232,44 @@ function setMode(m) {
   $('#evalBar').hidden = m !== 'review';
   $('#overActions').querySelector('#btnRematch').hidden = !(S.line && S.line.source === 'play');
   if ((prev === 'review') !== (m === 'review')) layoutBoard();
+  renderSideTabs(prev !== m);
   disarm();
   if (window.WP_ONLINE) window.WP_ONLINE.qbar();   // the matchmaking bar shows everywhere but the lobby
+}
+/* The tabs at the top of the panel beside the board. Each page has its own set, and a tab shows one or more of
+   the panel's sections. The sections keep their own hidden state from setMode; a tab only hides the ones that
+   belong to another tab (data-tab-off). With a single tab there is no tab row: the section's heading is the title.
+   A new page starts on its first tab; within a page, the tab you picked stays. */
+const SIDE = { tab: null, ids: '' };
+const SIDE_SECTIONS = ['setupCard', 'reviewCta', 'puzzlePanel', 'lessonPanel', 'reviewPanel', 'sheet', 'onlinePanel'];
+function sideTabs() {
+  const m = S.mode; const moves = { id: 'moves', label: 'Moves', els: ['sheet'] };
+  if (m === 'idle') return [{ id: 'new', label: 'Play Stockfish', els: ['setupCard'] }, { id: 'rv', label: 'Review a game', els: ['reviewCta'] }];
+  if (m === 'over') return [moves, { id: 'new', label: 'New game', els: ['setupCard'] }];
+  if (m === 'review') return [{ id: 'review', label: 'Review', els: ['reviewPanel'] }, moves];
+  if (m === 'puzzle') return [{ id: 'puzzle', label: 'Puzzle', els: ['puzzlePanel'] }, moves];
+  if (m === 'lesson') return [{ id: 'lesson', label: 'Lesson', els: ['lessonPanel'] }, moves];
+  // an online game keeps its moves, offers and messages together, like chess.com, so an offer can't hide behind a tab
+  if (m === 'online') return window.WP_ONLINE && window.WP_ONLINE.inGame() ? [{ id: 'game', label: 'Game', els: ['sheet', 'onlinePanel'] }] : [{ id: 'lobby', label: 'Play online', els: ['onlinePanel'] }];
+  return [moves];                                  // a game against Stockfish, playing or paused
+}
+function renderSideTabs(reset) {
+  const tabs = sideTabs(); const ids = tabs.map(t => t.id).join(' ');
+  if (reset || !tabs.some(t => t.id === SIDE.tab)) SIDE.tab = tabs[0].id;
+  const cur = tabs.find(t => t.id === SIDE.tab);
+  for (const id of SIDE_SECTIONS) { const el = $('#' + id); if (el) el.toggleAttribute('data-tab-off', !cur.els.includes(id)); }
+  const bar = $('#sideTabs'), many = tabs.length > 1;
+  bar.hidden = !many; $('#side').classList.toggle('has-tabs', many);
+  if (ids !== SIDE.ids) {
+    SIDE.ids = ids;
+    bar.innerHTML = many ? tabs.map(t => `<button class="side-tab" data-side-tab="${t.id}" aria-controls="${t.els.join(' ')}">${esc(t.label)}</button>`).join('') : '';
+  }
+  bar.querySelectorAll('.side-tab').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.sideTab === SIDE.tab)));
+}
+function pickSideTab(id) {
+  if (id === SIDE.tab) return;
+  SIDE.tab = id; renderSideTabs(false); $('#sideBody').scrollTop = 0;
+  if (id === 'moves') renderSheet();               // now that the list is visible, bring the current move into view
 }
 
 /* =====================================================================
@@ -2290,8 +2303,8 @@ function renderPlates() {
     const engineSide = S.game && S.mode === 'play' && c !== S.game.playerColor && L && L.source === 'play';
     const sub = engineSide && S.thinking ? `<span class="thinking">thinking</span>` : esc(s || '');
     const adv = c === 'w' ? diff : -diff;
-    return `<div class="who"><span class="pc-ic">${pieceSVG(c + 'K')}</span><span class="who-text"><span class="who-name">${esc(n)}</span><span class="who-sub">${sub}</span></span></div>
-      <div class="plate-right"><span class="caps" aria-label="Captured pieces">${caps[c].map(p => pieceSVG(p)).join('')}${adv > 0 ? `<span class="adv">+${adv}</span>` : ''}</span>${['idle', 'play', 'paused', 'over', 'online'].includes(S.mode) ? `<span class="tchip" data-color="${c}"></span>` : ''}</div>`;
+    return `<div class="who"><span class="pc-ic">${pieceSVG(c + 'K')}</span><span class="who-text"><span class="who-line"><span class="who-name">${esc(n)}</span><span class="who-sub">${sub}</span></span><span class="caps" aria-label="Captured pieces">${caps[c].map(p => pieceSVG(p)).join('')}${adv > 0 ? `<span class="adv">+${adv}</span>` : ''}</span></span></div>
+      <div class="plate-right">${['idle', 'play', 'paused', 'over', 'online'].includes(S.mode) ? `<span class="tchip" data-color="${c}" role="timer" aria-label="${c === 'w' ? 'White' : 'Black'}'s clock"></span>` : ''}</div>`;
   };
   $('#plateTop').innerHTML = plate(top); $('#plateBottom').innerHTML = plate(bot);
   updateClock();
@@ -2358,7 +2371,7 @@ function renderNav() {
   else note.textContent = '';
 }
 function renderAll() {
-  renderPlates(); renderSheet(); renderHighlights(); renderBanner(); renderNav(); setClockNames(); updateClock();
+  renderPlates(); renderSheet(); renderHighlights(); renderBanner(); renderNav(); updateClock();
   if (S.mode === 'review') renderReview();
   if (S.mode === 'puzzle' || S.mode === 'lesson') renderTrainer();
   if (S.mode === 'online' && window.WP_ONLINE) window.WP_ONLINE.render();
@@ -2376,12 +2389,14 @@ function announce(t) { const l = $('#live'); l.textContent = ''; setTimeout(() =
 let toastTimer = null;
 function toast(msg) { const host = $('#toastHost'); host.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toastTimer); toastTimer = setTimeout(() => { host.innerHTML = ''; }, 3200); }
 let armed = null;
+// A menu button keeps its icon: only its name (.lbl) changes to the question
+const armText = (btn) => btn.querySelector('.lbl') || btn;
 function armOrRun(btn, label, fn) {
   if (armed === btn) { disarm(); fn(); return; }
-  disarm(); armed = btn; btn.dataset.label = btn.textContent; btn.textContent = label; btn.classList.add('armed');
+  disarm(); armed = btn; const t = armText(btn); btn.dataset.label = t.textContent; t.textContent = label; btn.classList.add('armed');
   armed.timer = setTimeout(disarm, 3500);
 }
-function disarm() { if (!armed) return; clearTimeout(armed.timer); armed.textContent = armed.dataset.label; armed.classList.remove('armed'); armed = null; }
+function disarm() { if (!armed) return; clearTimeout(armed.timer); armText(armed).textContent = armed.dataset.label; armed.classList.remove('armed'); armed = null; }
 
 /* =====================================================================
    Review: grade every move with Stockfish
@@ -2583,7 +2598,7 @@ function renderAnnot() {
     const keys = keyMoments().length;
     el.style.removeProperty('--cc');
     el.innerHTML = `<div class="annot-top"><span class="annot-badge" style="--cc:var(--ink-soft)">♙</span><span class="annot-title">Starting position</span>${evChip}</div>
-      <p class="annot-body">${R.done ? `Step through with → or click any move on the score sheet, or press <b>Play through</b> to watch the game and stop at the moments that matter. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
+      <p class="annot-body">${R.done ? `Step through with →, click the graph or pick a move under Moves, or press <b>Play through</b> to watch the game and stop at the moments that matter. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
     return;
   }
   const i = v - 1; const mv = L.moves[i]; const cls = R.cls[i];
@@ -2829,6 +2844,7 @@ function wire() {
   $('#lvl').addEventListener('input', e => { S.settings.elo = +e.target.value; renderSetup(); renderPlates(); save(); });
   $('#tcGrid').addEventListener('click', e => { const b = e.target.closest('.tc-btn'); if (!b) return; S.settings.tc = b.dataset.tc; renderSetup(); renderSheet(); updateClock(); save(); });
   $('#btnPlay').addEventListener('click', startGame);
+  $('#sideTabs').addEventListener('click', e => { const b = e.target.closest('[data-side-tab]'); if (b) pickSideTab(b.dataset.sideTab); });
   $('#btnNew').addEventListener('click', (e) => {
     if (S.mode === 'play' && S.line && S.line.moves.length) { armOrRun(e.currentTarget, 'Abandon this game?', abandonGame); return; }
     if (S.mode === 'review') { if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
@@ -3974,6 +3990,7 @@ window.WP_ONLINE = {
   canPremove: () => !!(ON.game && ON.game.status === 'active' && ON.game.you && S.chess && S.chess.turn() !== ON.game.you),
   move: onlineMove, render: renderOnlinePanel, banner: onlineBanner, note: onlineNote, open: () => openOnline(),
   leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: onModeChange,
+  inGame: () => !!ON.game,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
   login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
   logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },
@@ -4548,7 +4565,7 @@ function tick() {
 }
 function boot(hot) {
   runOpening();
-  buildDefs(); buildClock(); wire();
+  buildDefs(); wire();
   const data = (hot && hot.state) || loadLocal();
   if (data && data.settings) { Object.assign(S.settings, data.settings); Snd.on = S.settings.sound !== false; }
   if (!S.settings.elo) S.settings.elo = LEVEL_TO_ELO[S.settings.level] || ELO_DEFAULT;

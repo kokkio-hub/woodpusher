@@ -21,10 +21,10 @@ async def main():
         for mv in [('e2','e4'), ('g1','f3'), ('f1','c4')]:
             await poll(pg, "S.chess.turn()==='w' && !S.thinking", 20); await click_sq(pg, mv[0]); await click_sq(pg, mv[1]); await asyncio.sleep(.3)
         await poll(pg, "S.line.moves.length>=6", 20); await asyncio.sleep(1.2)
-        print('clock rows on:', await pg.evaluate("[...document.querySelectorAll('.dc-row')].map(r=>r.className+' '+r.textContent.trim())"))
+        print('clocks in the player bars:', await pg.evaluate("[...document.querySelectorAll('.plate .tchip')].map(r=>r.className+' '+r.textContent.trim())"))
         await pg.screenshot(path=f'{OUT}/desk-play.png')
         m = await (await b.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2)).new_page()
         await m.goto('http://localhost:3100/'); await asyncio.sleep(1.2)
-        print('mobile clock-stand display:', await m.evaluate("getComputedStyle(document.querySelector('#clockStand')).display"), 'scrollW', await m.evaluate('document.documentElement.scrollWidth'))
+        print('mobile clock display:', await m.evaluate("getComputedStyle(document.querySelector('.plate .tchip')).display"), 'scrollW', await m.evaluate('document.documentElement.scrollWidth'))
         print('errors:', errs or 'none'); await b.close()
 asyncio.run(main())

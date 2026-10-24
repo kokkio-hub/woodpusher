@@ -3,7 +3,7 @@
    espresso screen covers it from the very first paint. The drawing waits
    for startOpening(), which boot calls once the heavy start-up work is
    done, so nothing interrupts the knight mid-stroke. When the wordmark has
-   wiped in, the logo flies into the top bar while the backdrop fades and
+   wiped in, the logo flies into the menu while the backdrop fades and
    the room rises into view. A click, tap or key skips it; with reduced
    motion it simply shows the logo and fades. If the script never runs, a
    CSS fallback fades the screen out on its own.
@@ -32,10 +32,15 @@ function runOpening() {
       if (!fast) reveal(500);
       return;
     }
-    const k = H.height / S.height;
-    const dx = (H.left + H.width / 2) - (S.left + S.width / 2), dy = (H.top + H.height / 2) - (S.top + S.height / 2);
+    // In the narrow menu column the logo is the knight alone: the knight flies there and the word fades on the way
+    const tw = target.querySelector('.lk-word'); const knightOnly = !!tw && getComputedStyle(tw).display === 'none';
+    const K = knightOnly ? lk.querySelector('.op-knight').getBoundingClientRect() : S;
+    const k = H.height / K.height;
+    const ox = (K.left + K.width / 2) - (S.left + S.width / 2), oy = (K.top + K.height / 2) - (S.top + S.height / 2);
+    const dx = (H.left + H.width / 2) - (S.left + S.width / 2) - k * ox, dy = (H.top + H.height / 2) - (S.top + S.height / 2) - k * oy;
     el.querySelector('.op-bg').animate([{ opacity: 1 }, { opacity: 0 }], { duration: 520, delay: 80, easing: 'ease-in-out', fill: 'forwards' });
     reveal(620);
+    if (knightOnly) lk.querySelector('.op-word').animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: 'ease', fill: 'forwards' });
     lk.animate([{ transform: 'none' }, { transform: `translate(${dx}px, ${dy}px) scale(${k})` }], { duration: 680, easing: 'cubic-bezier(.6,0,.25,1)', fill: 'forwards' }).finished.then(done, done);
   };
   OPENING.leave = leave;

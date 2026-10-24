@@ -134,7 +134,7 @@ function wireOpponents() {
     const p = personaById(b.dataset.opp);
     S.settings.opp = p ? p.id : null;
     if (p) { S.settings.elo = clamp(Math.round(Math.min(p.rating, ELO_MAX) / ELO_STEP) * ELO_STEP, ELO_MIN, ELO_MAX); loadBook(p.id); }
-    $('#oppModal').hidden = true; renderSetup(); renderPlates(); renderSheet(); setClockNames(); save(); $('#oppPick').focus();
+    $('#oppModal').hidden = true; renderSetup(); renderPlates(); renderSheet(); save(); $('#oppPick').focus();
   });
   if (!personaById(S.settings.opp)) S.settings.opp = null; else loadBook(S.settings.opp);
 }
