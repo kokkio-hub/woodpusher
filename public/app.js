@@ -1044,7 +1044,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
-const BOOK_QS = '?v=94713a383e';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
+const BOOK_QS = '?v=e3c3a28c2f';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -1771,6 +1771,8 @@ function newLine(startFen, names, subs, extra = {}) {
   return Object.assign({ startFen, fens: [startFen], moves: [], names, subs, headers: {}, result: '*', reason: '', source: 'play' }, extra);
 }
 const tcById = (id) => TCS.find(t => t.id === id) || TCS[2];
+// a touch screen as the main pointer: texts name the buttons instead of the keys
+const coarse = () => !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
 const chessAt = (fen) => new Chess(fen);
 const liveIndex = () => S.line ? S.line.fens.length - 1 : 0;
 
@@ -1790,11 +1792,12 @@ let boardPx = 400;
 function layoutBoard() {
   const vw = document.documentElement.clientWidth, vh = window.innerHeight;
   const wide = vw >= 980;
-  const evw = S.mode === 'review' ? (wide ? 34 : 28) : 0;
+  const evw = S.mode === 'review' ? (wide ? 34 : vw < 600 ? 18 : 28) : 0;   // the eval bar and its gap (none on phones)
   let size;
   // beside the board: the menu on the left (--navw), the panel (360) and the gap (26); above and below it the player bars
   const navw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--navw')) || 0;
   if (wide) size = Math.min(vw - navw - 32 - 360 - 26 - evw, vh - 186, 820);
+  else if (vw < 600) size = vw - evw;              // phones: edge to edge, no frame (see the styles for max-width 599px)
   else size = Math.min(vw - 32 - evw, 620);
   size = Math.max(250, Math.floor(size));
   document.documentElement.style.setProperty('--bw', size + 'px');
@@ -2267,6 +2270,7 @@ class Engine {
 const ENG = { main: null, pool: [], source: null, ready: null, status: 'loading' };
 function setEngineStatus(text, state) { const el = $('#engineStatus'); el.textContent = text; el.classList.toggle('ok', state === 'ok'); el.classList.toggle('bad', state === 'bad'); }
 function bootEngine() {
+  if (ENG.ready) return ENG.ready;   // started once per page
   ENG.ready = (async () => {
     for (const src of ENGINE_SOURCES) {
       const w = await bootWorker(src, src.label === 'WebAssembly' ? 15000 : 40000);
@@ -2466,7 +2470,7 @@ function resumeGame() {
   if (S.chess.turn() !== g.playerColor) engineMove();
 }
 function setMode(m) {
-  const prev = S.mode; S.mode = m;
+  const prev = S.mode; S.mode = m; document.body.dataset.mode = m;
   if (m !== 'review') apPause();
   if (m !== 'review' && prev === 'review') deepStop(true);
   if (m !== 'play' && m !== 'online') S.premoves = [];
@@ -2613,7 +2617,7 @@ function renderNav() {
   $('#navNext').disabled = $('#navLast').disabled = S.view >= n;
   const note = $('#viewNote');
   if (S.premoves.length && S.view === n && (S.mode === 'play' || S.mode === 'online')) note.textContent = premoveNote();
-  else if (S.mode === 'play' && S.view < n) note.textContent = 'Looking back. Press → or End to return to the game.';
+  else if (S.mode === 'play' && S.view < n) note.textContent = coarse() ? 'Looking back. Tap ▶| to return to the game.' : 'Looking back. Press → or End to return to the game.';
   else if (S.mode === 'paused') note.textContent = 'Game paused. Your clocks are stopped.';
   else if (S.mode === 'puzzle' && T.kind === 'puzzle' && PZ.p) note.textContent = ({ intro: 'Watch the opponent\u2019s move…', solving: `Your turn: find the best move for ${colorName(PZ.color)}.`, reply: 'Correct! Keep going…', wrong: 'Not this one. Try again.', solved: 'Solved!', solvedHelp: 'Solved with help.', showing: 'Showing the solution…', shown: 'Solution shown.' })[PZ.state] || '';
   else if (S.mode === 'lesson' && T.kind === 'lesson' && LS.line && LS.phase === 'practice') note.textContent = ({ await: `Your move as ${colorName(LS.color)}.`, reply: 'Opponent to move…', wrong: 'Not the book move. Try again.', done: 'Line complete.' })[LS.state] || '';
@@ -2858,7 +2862,7 @@ function renderAnnot() {
     const keys = keyMoments().length;
     el.style.removeProperty('--cc');
     el.innerHTML = `<div class="annot-top"><span class="annot-badge" style="--cc:var(--ink-soft)">♙</span><span class="annot-title">Starting position</span>${evChip}</div>
-      <p class="annot-body">${R.done ? `Step through with →, click the graph or pick a move under Moves, or press <b>Play through</b> to watch the game and stop at the moments that matter. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
+      <p class="annot-body">${R.done ? `${coarse() ? 'Step through with the ▶ button, tap the graph' : 'Step through with →, click the graph'} or pick a move under Moves, or press <b>Play through</b> to watch the game and stop at the moments that matter. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
     return;
   }
   const i = v - 1; const mv = L.moves[i]; const cls = R.cls[i];
@@ -3097,6 +3101,10 @@ function renderSetup() {
   $('#lvl').value = st.elo; $('#lvlOut').textContent = eloLabel(st.elo); $('#lvlBlurb').textContent = eloBand(st.elo)[2];
   $('#lvl').setAttribute('aria-valuetext', `About ${st.elo} Elo, ${eloBand(st.elo)[1]}`);
   $('#tcGrid').innerHTML = TCS.map(t => `<button class="tc-btn" data-tc="${t.id}" aria-pressed="${t.id === st.tc}" aria-label="${t.base ? `${t.base / 60} minutes plus ${t.inc} seconds, ${t.kind}` : 'Untimed'}"><b>${t.base ? t.id : '∞'}</b><small>${t.kind}</small></button>`).join('');
+  // the Play row under the board on phones and tablets: who, which clock, which side
+  const op = curPersona(), tc = tcById(st.tc);
+  $('#qpOpp').textContent = op ? `${botName(op)} · ≈${st.elo}` : `Stockfish ${eloLabel(st.elo)}`;
+  $('#qpMore').textContent = `${tc.base ? `${tc.id} ${tc.kind.toLowerCase()}` : 'Untimed'} · ${({ w: 'as White', b: 'as Black' })[st.color] || 'random side'}`;
 }
 function wire() {
   document.querySelectorAll('[data-pc]').forEach(el => { el.innerHTML = pieceSVG(el.dataset.pc); });
@@ -3104,6 +3112,11 @@ function wire() {
   $('#lvl').addEventListener('input', e => { S.settings.elo = +e.target.value; renderSetup(); renderPlates(); save(); });
   $('#tcGrid').addEventListener('click', e => { const b = e.target.closest('.tc-btn'); if (!b) return; S.settings.tc = b.dataset.tc; renderSetup(); renderSheet(); updateClock(); save(); });
   $('#btnPlay').addEventListener('click', startGame);
+  $('#qpGo').addEventListener('click', startGame);
+  $('#qpSum').addEventListener('click', () => {
+    pickSideTab('new');
+    $('#setupCard').scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  });
   $('#sideTabs').addEventListener('click', e => { const b = e.target.closest('[data-side-tab]'); if (b) pickSideTab(b.dataset.sideTab); });
   $('#btnNew').addEventListener('click', (e) => {
     if (S.mode === 'play' && S.line && S.line.moves.length) { armOrRun(e.currentTarget, 'Abandon this game?', abandonGame); return; }
@@ -4836,12 +4849,15 @@ function boot(hot) {
   $('#boardWrap').dataset.board = curBoard();
   S.orientation = S.settings.color === 'b' ? 'b' : 'w';
   layoutBoard(); renderCoords();
+  // Start Stockfish before restoring: a review that was still running when the page was reloaded carries on
+  // right away, and it needs ENG.ready to exist (without it the review stopped with "Stockfish is not running").
+  bootEngine();
   const ok = restore(data);
   if (!S.settings.lookChosen) S.settings.look = 'light'; applyTheme();   // restore() re-reads the saved settings
   if (!ok) { setMode('idle'); renderPieces(START_FEN, false); renderAll(); }
   requestAnimationFrame(tick);
   setTimeout(() => { buildOverlays(); buildQuickTextures(); scheduleTextureUpgrade(); watchZoom(); startOpening(); }, 0);
-  bootEngine(); wireTrainer(); wireSettings(); wireDeep();
+  wireTrainer(); wireSettings(); wireDeep();
   if (window.WP_ONLINE) window.WP_ONLINE.boot();
   for (const k of ['WP_IMPORT', 'WP_SYNC', 'WP_PLAYERS', 'WP_INSTALL']) if (window[k] && window[k].boot) window[k].boot();
   if (window.claude && window.claude.hot && window.claude.hot.snapshot) window.claude.hot.snapshot(() => ({ state: snapshot() }));

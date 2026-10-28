@@ -213,8 +213,6 @@ button { font: inherit; color: inherit; }
 .board-wrap[data-board="paper"] { --frame-bg: #f4efe4; --coord: #2a2620; --coord-shadow: none; --string: #1d1a16; --string-shadow: transparent; }
 .board-wrap[data-board="flat"] { --frame-bg: #2f3a37; --coord: #ece6da; --coord-shadow: none; --string: transparent; --string-shadow: transparent; }
 .board-wrap[data-board="glass"] { --frame-bg: #111b26; --coord: rgba(210,230,250,.85); --coord-shadow: 0 0 6px rgba(120,180,255,.35); --string: rgba(190,220,255,.5); --string-shadow: rgba(0,0,0,.3); }
-.board-wrap[data-board="glass"] .hl-last { mix-blend-mode: normal; background: rgba(110,190,255,.28); }
-.board-wrap[data-board="flat"] .hl-last { mix-blend-mode: normal; background: rgba(232,190,70,.5); }
 .board-wrap[data-board="glass"] .hint::after, .board-wrap[data-board="flat"] .hint::after { background: rgba(10,20,30,.35); }
 #frameCanvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 7px; }
 .board-wrap::after {
@@ -233,8 +231,10 @@ button { font: inherit; color: inherit; }
 #boardCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #b88a55; }
 .layer { position: absolute; inset: 0; pointer-events: none; }
 .hl { position: absolute; width: 12.5%; height: 12.5%; left: calc(var(--c) * 12.5%); top: calc(var(--r) * 12.5%); }
-.hl-last { background: rgba(247,190,70,.5); mix-blend-mode: multiply; }
-.hl-sel { background: rgba(239,214,159,.25); box-shadow: inset 0 0 0 3px rgba(244,222,170,.95); }
+/* The last move and the selected piece: one clear yellow on every board, light and dark squares alike (like chess.com).
+   A multiply tint vanished on the dark wood squares. */
+.hl-last { background: rgba(255,214,10,.42); }
+.hl-sel { background: rgba(255,214,10,.55); }
 .hl-pre { background: rgba(196,48,34,.5); box-shadow: inset 0 0 0 2px rgba(120,18,10,.35); }
 .board-wrap[data-board="glass"] .hl-pre { background: rgba(255,92,80,.36); }
 .hl-hover { box-shadow: inset 0 0 0 3px rgba(255,248,230,.75); }
@@ -771,6 +771,87 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
   .brand .lockup { --lk: 22px; }
   .mlist { max-height: 260px; }
 }
+
+/* ---------- phones and tablets: the menu is a bar along the bottom of the screen, like chess.com's app ----------
+   Icons with short names; the page keeps room for the bar, and toasts and the matchmaking bar sit above it. */
+.quick-play { display: none; }
+@media (max-width: 979px) {
+  :root { --tabh: 60px; }
+  body { padding-bottom: calc(var(--tabh) + env(safe-area-inset-bottom, 0px)); }
+  .topbar { padding-block: 8px 4px; border-bottom: 0; }
+  .top-actions {
+    position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; gap: 2px; flex-wrap: nowrap;
+    padding: 4px max(4px, env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) max(4px, env(safe-area-inset-left, 0px));
+    background: var(--leather); border-top: 1px solid rgba(var(--line),.22); box-shadow: 0 -8px 20px -14px rgba(0,0,0,.45);
+  }
+  :root[data-look="light"] .top-actions { background: #ffffff; box-shadow: 0 -8px 20px -14px rgba(36,23,15,.3); }
+  .top-actions .nav-item, :root[data-look="light"] .top-actions .nav-item[aria-current="page"] {
+    flex: 1 1 0; min-width: 0; min-height: 52px; flex-direction: column; gap: 4px; padding: 6px 2px 5px;
+    border: 0; border-radius: 8px; background: transparent; box-shadow: none;
+    font: 600 11.5px/1.1 var(--f-display); color: var(--ivory-dim); -webkit-tap-highlight-color: transparent;
+  }
+  .top-actions .nav-item[aria-current="page"], :root[data-look="light"] .top-actions .nav-item[aria-current="page"] { color: var(--brass-hi); background: rgba(var(--line),.1); }
+  .top-actions .nav-item.armed, :root[data-look="light"] .top-actions .nav-item.armed { background: #8e2a22; color: #fff; }
+  .nav-ic, #btnSettings .nav-ic { display: block; width: 24px; height: 24px; }
+  .top-actions .nav-item .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .top-actions .nav-item .lbl-s { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* a confirm prompt ("Abandon this game?") replaces the short name while it waits for the second tap */
+  .top-actions .nav-item.armed .lbl { position: static; width: auto; height: auto; clip: auto; white-space: normal; font-size: 11px; }
+  .top-actions .nav-item.armed .lbl-s, .top-actions .nav-item.armed .nav-ic { display: none; }
+  .toast { bottom: calc(var(--tabh) + 14px + env(safe-area-inset-bottom, 0px)); }
+  body.has-qbar .toast { bottom: calc(var(--tabh) + 78px + env(safe-area-inset-bottom, 0px)); }
+  .qbar { bottom: calc(var(--tabh) + 10px + env(safe-area-inset-bottom, 0px)); }
+
+  /* Play is in reach under the board: what will be played, and the button. The full choice stays in the panel. */
+  body[data-mode="idle"] .quick-play { display: flex; align-items: center; gap: 10px; }
+  body[data-mode="idle"] .side-foot .board-tools { display: none; }
+  .qp-sum { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 2px; border: 0; background: none; text-align: left; cursor: pointer; }
+  .qp-opp { font-weight: 700; font-size: 15px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .qp-more { font-size: 13.5px; color: var(--ivory-dim); }
+  .qp-more u { color: var(--brass-hi); text-decoration: none; font-weight: 600; margin-left: 4px; }
+  .qp-go { flex: 0 0 44%; font-size: 18px; padding: 13px; }
+
+  /* in a review the note on the current move comes first, right under the board */
+  #reviewPanel > .annot { order: -1; }
+  /* no empty line between the board and the buttons; the line under the board only takes room when it says something */
+  .view-note:empty { display: none; }
+}
+/* the key list is for keyboards; phones and tablets have the buttons */
+@media (pointer: coarse) { .keys-hint { display: none; } }
+
+/* ---------- phones: the board runs edge to edge, without the frame; the coordinates sit in the corner squares ---------- */
+@media (max-width: 599px) {
+  body { padding-left: 0; padding-right: 0; }
+  .topbar, .foot { padding-inline: max(14px, env(safe-area-inset-left, 0px)) max(14px, env(safe-area-inset-right, 0px)); }
+  .room { padding-block: 2px 22px; gap: 14px; }
+  .room > .side { justify-self: stretch; width: auto; margin-inline: 10px; }
+  .plate { padding-inline: calc(var(--evw) + 10px) 10px; min-height: 46px; }
+  .view-note { padding-inline: 10px; }
+  .board-row { gap: 0; }
+  .evalbar { margin-block: 0; border-radius: 0; box-shadow: none; }
+  .board-wrap, :root[data-look="light"] .board-wrap { --fw: 0px; border-radius: 0; background: none; box-shadow: none; }
+  .board-wrap #frameCanvas, .board-wrap::after { display: none; }
+  .board { box-shadow: none; }
+  .board-wrap[data-board="paper"] .board, .board-wrap[data-board="flat"] .board { box-shadow: 0 0 0 1px rgba(29,26,22,.55); }
+  /* Bottom row and left column: chess.com's place for them. The bottom-left square is always dark and the top-left
+     always light, so the colours alternate from there; each label takes the colour of the other kind of square. */
+  .board-wrap { --on-dark: #edd5a6; --on-light: #865937; }
+  .board-wrap[data-board="rosewood"] { --on-dark: #edd8a1; --on-light: #663325; }
+  .board-wrap[data-board="mahogany"] { --on-dark: #efdab0; --on-light: #8b4128; }
+  .board-wrap[data-board="oak"] { --on-dark: #e9dbbd; --on-light: #6f533b; }
+  .board-wrap[data-board="marble"] { --on-dark: #f1efea; --on-light: #3d6458; }
+  .board-wrap[data-board="slate"] { --on-dark: #d1d7dc; --on-light: #414a54; }
+  .board-wrap[data-board="paper"] { --on-dark: #2a2620; --on-light: #2a2620; }
+  .board-wrap[data-board="flat"] { --on-dark: #f4efe6; --on-light: #5e766f; }
+  .board-wrap[data-board="glass"] { --on-dark: #c9d6e6; --on-light: #2c3d52; }
+  .coords { z-index: 1; font: 700 calc(var(--bw) / 8 * .25)/1 var(--f-body); text-shadow: none; }
+  .coords-files { left: 0; right: 0; bottom: 0; top: auto; height: auto; align-items: end; justify-items: end; }
+  .coords-files span { padding: 0 3px 2px 0; }
+  .coords-ranks { top: 0; bottom: 0; left: 0; width: auto; align-items: start; justify-items: start; }
+  .coords-ranks span { padding: 3px 0 0 3px; }
+  .coords-files span:nth-child(odd), .coords-ranks span:nth-child(even) { color: var(--on-dark); }
+  .coords-files span:nth-child(even), .coords-ranks span:nth-child(odd) { color: var(--on-light); }
+}
 @media (prefers-reduced-motion: reduce) {
   .pc, .tchip, .evalbar .eb-fill, .rv-bar i { transition: none; }
   .banner-card, .toast, .qbar { animation: none; }
@@ -938,6 +1019,10 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
       <section class="card stack" id="onlinePanel" hidden aria-label="Play online"></section>
     </div>
     <div class="side-foot" id="sideFoot">
+      <div class="quick-play" id="quickPlay">
+        <button class="qp-sum" id="qpSum" type="button" aria-label="Change the opponent, side, strength or clock"><span class="qp-opp" id="qpOpp"></span><span class="qp-more"><span id="qpMore"></span><u>Change</u></span></button>
+        <button class="btn btn-brass qp-go" id="qpGo" type="button">Play</button>
+      </div>
       <div class="board-tools" role="toolbar" aria-label="Move navigation">
         <button class="btn icon-btn" id="navFirst" aria-label="First move" title="First move (Home)"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM19 5v14l-9-7z"/></svg></button>
         <button class="btn icon-btn" id="navPrev" aria-label="Previous move" title="Previous move (←)"><svg viewBox="0 0 24 24"><path d="M16 5v14l-9-7z"/></svg></button>
@@ -1581,6 +1666,8 @@ function newLine(startFen, names, subs, extra = {}) {
   return Object.assign({ startFen, fens: [startFen], moves: [], names, subs, headers: {}, result: '*', reason: '', source: 'play' }, extra);
 }
 const tcById = (id) => TCS.find(t => t.id === id) || TCS[2];
+// a touch screen as the main pointer: texts name the buttons instead of the keys
+const coarse = () => !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
 const chessAt = (fen) => new Chess(fen);
 const liveIndex = () => S.line ? S.line.fens.length - 1 : 0;
 
@@ -1600,11 +1687,12 @@ let boardPx = 400;
 function layoutBoard() {
   const vw = document.documentElement.clientWidth, vh = window.innerHeight;
   const wide = vw >= 980;
-  const evw = S.mode === 'review' ? (wide ? 34 : 28) : 0;
+  const evw = S.mode === 'review' ? (wide ? 34 : vw < 600 ? 18 : 28) : 0;   // the eval bar and its gap (none on phones)
   let size;
   // beside the board: the menu on the left (--navw), the panel (360) and the gap (26); above and below it the player bars
   const navw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--navw')) || 0;
   if (wide) size = Math.min(vw - navw - 32 - 360 - 26 - evw, vh - 186, 820);
+  else if (vw < 600) size = vw - evw;              // phones: edge to edge, no frame (see the styles for max-width 599px)
   else size = Math.min(vw - 32 - evw, 620);
   size = Math.max(250, Math.floor(size));
   document.documentElement.style.setProperty('--bw', size + 'px');
@@ -2080,6 +2168,7 @@ class Engine {
 const ENG = { main: null, pool: [], source: null, ready: null, status: 'loading' };
 function setEngineStatus(text, state) { const el = $('#engineStatus'); el.textContent = text; el.classList.toggle('ok', state === 'ok'); el.classList.toggle('bad', state === 'bad'); }
 function bootEngine() {
+  if (ENG.ready) return ENG.ready;   // started once per page
   ENG.ready = (async () => {
     for (const src of ENGINE_SOURCES) {
       const w = await bootWorker(src, src.label === 'WebAssembly' ? 15000 : 40000);
@@ -2279,7 +2368,7 @@ function resumeGame() {
   if (S.chess.turn() !== g.playerColor) engineMove();
 }
 function setMode(m) {
-  const prev = S.mode; S.mode = m;
+  const prev = S.mode; S.mode = m; document.body.dataset.mode = m;
   if (m !== 'review') apPause();
   if (m !== 'review' && prev === 'review') deepStop(true);
   if (m !== 'play' && m !== 'online') S.premoves = [];
@@ -2426,7 +2515,7 @@ function renderNav() {
   $('#navNext').disabled = $('#navLast').disabled = S.view >= n;
   const note = $('#viewNote');
   if (S.premoves.length && S.view === n && (S.mode === 'play' || S.mode === 'online')) note.textContent = premoveNote();
-  else if (S.mode === 'play' && S.view < n) note.textContent = 'Looking back. Press → or End to return to the game.';
+  else if (S.mode === 'play' && S.view < n) note.textContent = coarse() ? 'Looking back. Tap ▶| to return to the game.' : 'Looking back. Press → or End to return to the game.';
   else if (S.mode === 'paused') note.textContent = 'Game paused. Your clocks are stopped.';
   else if (S.mode === 'puzzle' && T.kind === 'puzzle' && PZ.p) note.textContent = ({ intro: 'Watch the opponent\u2019s move…', solving: `Your turn: find the best move for ${colorName(PZ.color)}.`, reply: 'Correct! Keep going…', wrong: 'Not this one. Try again.', solved: 'Solved!', solvedHelp: 'Solved with help.', showing: 'Showing the solution…', shown: 'Solution shown.' })[PZ.state] || '';
   else if (S.mode === 'lesson' && T.kind === 'lesson' && LS.line && LS.phase === 'practice') note.textContent = ({ await: `Your move as ${colorName(LS.color)}.`, reply: 'Opponent to move…', wrong: 'Not the book move. Try again.', done: 'Line complete.' })[LS.state] || '';
@@ -2671,7 +2760,7 @@ function renderAnnot() {
     const keys = keyMoments().length;
     el.style.removeProperty('--cc');
     el.innerHTML = `<div class="annot-top"><span class="annot-badge" style="--cc:var(--ink-soft)">♙</span><span class="annot-title">Starting position</span>${evChip}</div>
-      <p class="annot-body">${R.done ? `Step through with →, click the graph or pick a move under Moves, or press <b>Play through</b> to watch the game and stop at the moments that matter. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
+      <p class="annot-body">${R.done ? `${coarse() ? 'Step through with the ▶ button, tap the graph' : 'Step through with →, click the graph'} or pick a move under Moves, or press <b>Play through</b> to watch the game and stop at the moments that matter. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
     return;
   }
   const i = v - 1; const mv = L.moves[i]; const cls = R.cls[i];
@@ -2910,6 +2999,10 @@ function renderSetup() {
   $('#lvl').value = st.elo; $('#lvlOut').textContent = eloLabel(st.elo); $('#lvlBlurb').textContent = eloBand(st.elo)[2];
   $('#lvl').setAttribute('aria-valuetext', `About ${st.elo} Elo, ${eloBand(st.elo)[1]}`);
   $('#tcGrid').innerHTML = TCS.map(t => `<button class="tc-btn" data-tc="${t.id}" aria-pressed="${t.id === st.tc}" aria-label="${t.base ? `${t.base / 60} minutes plus ${t.inc} seconds, ${t.kind}` : 'Untimed'}"><b>${t.base ? t.id : '∞'}</b><small>${t.kind}</small></button>`).join('');
+  // the Play row under the board on phones and tablets: who, which clock, which side
+  const op = curPersona(), tc = tcById(st.tc);
+  $('#qpOpp').textContent = op ? `${botName(op)} · ≈${st.elo}` : `Stockfish ${eloLabel(st.elo)}`;
+  $('#qpMore').textContent = `${tc.base ? `${tc.id} ${tc.kind.toLowerCase()}` : 'Untimed'} · ${({ w: 'as White', b: 'as Black' })[st.color] || 'random side'}`;
 }
 function wire() {
   document.querySelectorAll('[data-pc]').forEach(el => { el.innerHTML = pieceSVG(el.dataset.pc); });
@@ -2917,6 +3010,11 @@ function wire() {
   $('#lvl').addEventListener('input', e => { S.settings.elo = +e.target.value; renderSetup(); renderPlates(); save(); });
   $('#tcGrid').addEventListener('click', e => { const b = e.target.closest('.tc-btn'); if (!b) return; S.settings.tc = b.dataset.tc; renderSetup(); renderSheet(); updateClock(); save(); });
   $('#btnPlay').addEventListener('click', startGame);
+  $('#qpGo').addEventListener('click', startGame);
+  $('#qpSum').addEventListener('click', () => {
+    pickSideTab('new');
+    $('#setupCard').scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  });
   $('#sideTabs').addEventListener('click', e => { const b = e.target.closest('[data-side-tab]'); if (b) pickSideTab(b.dataset.sideTab); });
   $('#btnNew').addEventListener('click', (e) => {
     if (S.mode === 'play' && S.line && S.line.moves.length) { armOrRun(e.currentTarget, 'Abandon this game?', abandonGame); return; }
@@ -3018,12 +3116,15 @@ function boot(hot) {
   $('#boardWrap').dataset.board = curBoard();
   S.orientation = S.settings.color === 'b' ? 'b' : 'w';
   layoutBoard(); renderCoords();
+  // Start Stockfish before restoring: a review that was still running when the page was reloaded carries on
+  // right away, and it needs ENG.ready to exist (without it the review stopped with "Stockfish is not running").
+  bootEngine();
   const ok = restore(data);
   if (!S.settings.lookChosen) S.settings.look = 'light'; applyTheme();   // restore() re-reads the saved settings
   if (!ok) { setMode('idle'); renderPieces(START_FEN, false); renderAll(); }
   requestAnimationFrame(tick);
   setTimeout(() => { buildOverlays(); buildQuickTextures(); scheduleTextureUpgrade(); watchZoom(); startOpening(); }, 0);
-  bootEngine(); wireTrainer(); wireSettings(); wireDeep();
+  wireTrainer(); wireSettings(); wireDeep();
   if (window.WP_ONLINE) window.WP_ONLINE.boot();
   for (const k of ['WP_IMPORT', 'WP_SYNC', 'WP_PLAYERS', 'WP_INSTALL']) if (window[k] && window[k].boot) window[k].boot();
   if (window.claude && window.claude.hot && window.claude.hot.snapshot) window.claude.hot.snapshot(() => ({ state: snapshot() }));

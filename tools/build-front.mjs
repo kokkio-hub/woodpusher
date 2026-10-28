@@ -32,7 +32,7 @@ html = html.replace(/<link rel="preconnect"[^>]*>\n/g, '').replace(/<link rel="s
 must(!html.includes('fonts.googleapis.com'), 'google fonts removed');
 const KEYS = '<span>Keys: ← → step · Home / End · F flips · Space plays a review</span>';
 must(html.includes(KEYS), 'keys line');
-html = html.replace(KEYS, '<span><span id="footInstall" hidden><a href="#" data-install>Install the app</a> · </span><a href="/leaderboard">Leaderboard</a> · <a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a> · Keys: ← → step · Home / End · F flips · Space plays a review</span>');
+html = html.replace(KEYS, '<span><span id="footInstall" hidden><a href="#" data-install>Install the app</a> · </span><a href="/leaderboard">Leaderboard</a> · <a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a><span class="keys-hint"> · Keys: ← → step · Home / End · F flips · Space plays a review</span></span>');
 for (const [a, b] of [["const BOOK_BASE = 'books/';", "const BOOK_BASE = '/books/';"], ["url: 'stockfish.js'", "url: '/stockfish.js'"], ["url: 'stockfish.asm.js'", "url: '/stockfish.asm.js'"], ["s.src = 'chess.js'", "s.src = '/chess.js'"], ["worker: 'deep-engine.js'", "worker: '/deep-engine.js'"]]) { must(app.includes(a), a); app = app.replace(a, b); }
 // Deep review: the engine file's address is in front/deep.js and, for the availability check and the
 // security policy, in server/deep-engine.js. Both must name the same file.
