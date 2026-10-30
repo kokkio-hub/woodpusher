@@ -943,7 +943,7 @@ function renderUserSection() {
       <p class="fine">A <b>?</b> means the rating is still a guess. It settles after a handful of rated games.</p></div>`;
   }
   let action = '';
-  if (me) action = `<button class="btn btn-small" data-open-player="${esc(me.username)}">Your profile</button><button class="btn btn-small" data-open-board>Leaderboard</button>${me.admin ? `<button class="btn btn-small" data-open-admin>Reports and fair play${me.openReports ? ` (${me.openReports} open)` : ''}</button>` : ''}<button class="btn btn-small" data-user="logout">Log out</button>`;
+  if (me) action = `<button class="btn btn-small" data-open-player="${esc(me.username)}">Your profile</button><button class="btn btn-small" data-open-board>Leaderboard</button>${me.admin ? `<button class="btn btn-small" data-open-admin>Reports and fair play${me.openReports ? ` (${me.openReports} open)` : ''}</button>` : ''}<button class="btn btn-small" data-user="password">Change password</button><button class="btn btn-small" data-user="newcode">${me.hasRecovery ? 'New recovery code' : 'Make a recovery code'}</button><button class="btn btn-small" data-user="logout">Log out</button>`;
   else if (online && !checking) action = `<button class="btn btn-brass btn-small" data-user="login">Log in or create an account</button>`;
   el.innerHTML = `
     <div class="you"><span class="you-ic" aria-hidden="true">${pieceSVG('wK')}</span><span class="you-text"><span class="you-name">${esc(name)}</span>${sub ? `<span class="you-sub">${esc(sub)}</span>` : ''}</span></div>
@@ -958,6 +958,7 @@ function wireUserSection() {
     const b = e.target.closest('[data-user]'); if (!b || !window.WP_ONLINE) return;
     if (b.dataset.user === 'login') { $('#settingsModal').hidden = true; window.WP_ONLINE.login(); }
     if (b.dataset.user === 'logout') { if (window.WP_ONLINE.logout()) $('#settingsModal').hidden = true; }
+    if (b.dataset.user === 'password' || b.dataset.user === 'newcode') window.WP_ONLINE.account(b.dataset.user);
   });
 }
 
@@ -1044,7 +1045,7 @@ function startOpening() {
    ===================================================================== */
 const PERSONA_LIST = typeof PERSONAS !== 'undefined' ? PERSONAS : [];
 const BOOK_BASE = '/books/';
-const BOOK_QS = '?v=e3c3a28c2f';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
+const BOOK_QS = '?v=377f5aa018';   // the website build adds ?v=<build> so a new build never reuses old books from the browser cache
 const BOOKS = {};
 const personaById = (id) => PERSONA_LIST.find(p => p.id === id) || null;
 const curPersona = () => personaById(S.settings.opp);
@@ -1792,7 +1793,7 @@ let boardPx = 400;
 function layoutBoard() {
   const vw = document.documentElement.clientWidth, vh = window.innerHeight;
   const wide = vw >= 980;
-  const evw = S.mode === 'review' ? (wide ? 34 : vw < 600 ? 18 : 28) : 0;   // the eval bar and its gap (none on phones)
+  const evw = hasEvalBar(S.mode) ? (wide ? 34 : vw < 600 ? 18 : 28) : 0;   // the eval bar and its gap (none on phones)
   let size;
   // beside the board: the menu on the left (--navw), the panel (360) and the gap (26); above and below it the player bars
   const navw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--navw')) || 0;
@@ -1931,19 +1932,21 @@ function repositionAll() { pieceEls.forEach(p => { p.el.style.transition = 'none
 
 function renderHighlights() {
   const layer = $('#hlLayer'); let h = '';
-  const L = S.line; if (!L) { layer.innerHTML = ''; return; }
-  const v = S.view; const mv = v > 0 ? L.moves[v - 1] : null;
-  const rv = S.mode === 'review' && S.review ? S.review : null;
-  const cls = rv && v > 0 ? rv.cls[v - 1] : null;
   const box = (sq, klass, extra = '') => { const [c, r] = sqToCR(sq); return `<div class="hl ${klass}" style="--c:${c};--r:${r};${extra}"></div>`; };
+  if (S.mode === 'edit') { layer.innerHTML = EDIT.sel ? box(EDIT.sel, 'hl-sel') : ''; renderArrows(); return; }
+  const L = S.line; if (!L) { layer.innerHTML = ''; renderArrows(); return; }
+  const v = S.view; const own = EX.active ? EX.moves[EX.moves.length - 1] : null;   // your own move in a review
+  const mv = own || (v > 0 ? L.moves[v - 1] : null);
+  const rv = S.mode === 'review' && S.review && !own ? S.review : null;
+  const cls = rv && v > 0 ? rv.cls[v - 1] : null;
   if (mv) {
     if (cls) { h += box(mv.from, 'hl-cls', `--cc:var(--c-${cls})`) + box(mv.to, 'hl-cls', `--cc:var(--c-${cls})`); }
     else h += box(mv.from, 'hl-last') + box(mv.to, 'hl-last');
   }
   if (S.premoves.length && v === liveIndex()) { const pre = new Set(); for (const pm of S.premoves) { pre.add(pm.from); pre.add(pm.to); } for (const sq of pre) h += box(sq, 'hl-pre'); }
-  const pos = chessAt(L.fens[v]);
+  const fen = boardFen(); const pos = chessAt(fen);
   if (pos.in_check()) {
-    const turn = pos.turn(); const map = boardMap(L.fens[v]);
+    const turn = pos.turn(); const map = boardMap(fen);
     const ksq = Object.keys(map).find(s => map[s] === turn + 'K'); if (ksq) h += box(ksq, 'hl-check');
   }
   if (S.sel) {
@@ -1952,18 +1955,21 @@ function renderHighlights() {
   }
   if (dragState && dragState.hover && dragState.hover !== dragState.from) h += box(dragState.hover, 'hl-hover');
   h += trainerHighlights(box);
+  if (marksHere()) for (const m of MK.squares) h += box(m.sq, 'hl-mark', `--mk:${MK_COLORS[m.col]}`);
   if (cls && mv) { const [c, r] = sqToCR(mv.to); h += `<div class="badge" style="--c:${c};--r:${r};--cc:var(--c-${cls})" title="${CLS[cls].label}">${CLS[cls].sym}</div>`; }
   layer.innerHTML = h;
   renderArrows();
 }
 function renderArrows() {
   const svg = $('#arrowLayer'); let out = '';
-  const rv = S.mode === 'review' && S.review ? S.review : null;
-  if (rv && S.view > 0) {
+  const rv = S.mode === 'review' && S.review && !EX.active ? S.review : null;
+  if (S.mode === 'analysis' || EX.active) out += lookArrow();
+  else if (rv && S.view > 0) {
     const i = S.view - 1; const cls = rv.cls[i]; const best = rv.best[i];
     if (best && cls && !['best', 'forced', 'great', 'brilliant'].includes(cls)) out += arrowPath(best.slice(0, 2), best.slice(2, 4), 'var(--c-best)');
   }
   out += trainerArrows();
+  if (marksHere()) for (const a of MK.arrows) out += arrowPath(a.from, a.to, MK_COLORS[a.col]);
   svg.innerHTML = out;
 }
 function arrowPath(from, to, color) {
@@ -2069,7 +2075,7 @@ function refreshSelection() {
 }
 function pieceCodeAt(sq, pre) {
   if (pre) return premoveMap()[sq] || null;
-  const p = S.chess.get(sq); return p ? p.color + p.type.toUpperCase() : null;
+  const p = inputChess().get(sq); return p ? p.color + p.type.toUpperCase() : null;
 }
 function premoveNote() {
   const n = S.premoves.length; const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
@@ -2080,6 +2086,7 @@ function premoveNote() {
 let dragState = null;
 let lastPointerType = 'mouse';
 function canUserMove() {
+  if (freeBoard()) { if (S.promoPending || !S.line) return false; const c = inputChess(); return !!c && !c.game_over(); }
   if (!S.chess || S.promoPending || S.view !== liveIndex()) return false;
   if (S.mode === 'play') return !!S.game && S.chess.turn() === S.game.playerColor && !S.thinking;
   if (S.mode === 'puzzle') return T.kind === 'puzzle' && PZ.state === 'solving' && S.chess.turn() === PZ.color;
@@ -2093,18 +2100,21 @@ function sqFromEvent(e) {
   if (c < 0 || c > 7 || r < 0 || r > 7) return null; return crToSq(c, r);
 }
 function selectSq(sq) {
-  S.sel = sq; S.legal = !sq ? [] : canUserMove() ? S.chess.moves({ square: sq, verbose: true }) : canPremove() ? premoveDests(sq) : [];
+  S.sel = sq; S.legal = !sq ? [] : canUserMove() ? inputChess().moves({ square: sq, verbose: true }) : canPremove() ? premoveDests(sq) : [];
   renderHighlights();
 }
 function onPointerDown(e) {
   lastPointerType = e.pointerType || 'mouse';
+  if (S.mode === 'edit') { editPointer(e); return; }
+  if (e.button === 2) { markStart(e); return; }
   if (e.button !== undefined && e.button !== 0) return;
+  if (marksHere()) clearMarks();                   // a left click on the board clears the arrows and marks
   const live = canUserMove(), pre = !live && canPremove();
   if (!live && !pre) { if (S.sel) selectSq(null); return; }
   const sq = sqFromEvent(e); if (!sq) return;
   if (S.sel && S.legal.some(m => m.to === sq)) { tryUserMove(S.sel, sq); return; }
   const code = pieceCodeAt(sq, pre);
-  if (code && code[0] === (pre ? myColor() : S.chess.turn())) {
+  if (code && code[0] === (pre ? myColor() : inputChess().turn())) {
     const wasSel = S.sel === sq; selectSq(sq);
     const p = pieceEls.find(x => x.sq === sq);
     dragState = { from: sq, code, startX: e.clientX, startY: e.clientY, active: false, el: p ? p.el : null, ghost: null, wasSel, hover: null, pid: e.pointerId };
@@ -2126,6 +2136,7 @@ function onPointerMove(e) {
   const hv = sqFromEvent(e); if (hv !== dragState.hover) { dragState.hover = hv; renderHighlights(); }
 }
 function onPointerUp(e) {
+  if (e.button === 2) { markEnd(e); return; }
   if (!dragState) return; const ds = dragState; dragState = null;
   try { boardEl().releasePointerCapture(ds.pid); } catch (_) {}
   if (ds.ghost) ds.ghost.remove(); if (ds.el) ds.el.classList.remove('lift');
@@ -2145,7 +2156,7 @@ function tryUserMove(from, to, dragged) {
   if (pre) queuePremove(from, to); else commitUserMove(from, to);
 }
 function openPromo(from, to, pre = false) {
-  S.promoPending = true; const el = $('#promo'); const color = pre ? myColor() : S.chess.turn(); const [c, r] = sqToCR(to);
+  S.promoPending = true; const el = $('#promo'); const color = pre ? myColor() : inputChess().turn(); const [c, r] = sqToCR(to);
   const top = r === 0; el.style.left = (c * 12.5) + '%'; el.style.top = top ? '0' : 'auto'; el.style.bottom = top ? 'auto' : '0';
   el.innerHTML = ['q', 'r', 'b', 'n'].map(p => `<button data-p="${p}" aria-label="Promote to ${({ q: 'queen', r: 'rook', b: 'bishop', n: 'knight' })[p]}">${pieceSVG(color + p.toUpperCase())}</button>`).join('');
   if (!top) el.style.flexDirection = 'column-reverse'; else el.style.flexDirection = 'column';
@@ -2159,6 +2170,7 @@ function openPromo(from, to, pre = false) {
 }
 function closePromo() { $('#promo').hidden = true; S.promoPending = false; }
 function commitUserMove(from, to, promo) {
+  if (freeBoard()) { freeMove(from, to, promo); return; }
   const mv = S.chess.move({ from, to, promotion: promo || 'q' }); if (!mv) return;
   S.sel = null; S.legal = [];
   if (S.mode === 'puzzle') puzzleMove(mv);
@@ -2474,8 +2486,11 @@ function setMode(m) {
   if (m !== 'review') apPause();
   if (m !== 'review' && prev === 'review') deepStop(true);
   if (m !== 'play' && m !== 'online') S.premoves = [];
+  if (m !== 'review') exploreExit();
   $('#setupCard').hidden = m !== 'idle' && m !== 'over';   // after a game it waits under "New game"
-  $('#reviewCta').hidden = m !== 'idle';
+  $('#importPanel').hidden = m !== 'import';
+  $('#analysisPanel').hidden = m !== 'analysis';
+  $('#editPanel').hidden = m !== 'edit';
   $('#playActions').hidden = m !== 'play';
   $('#pausedActions').hidden = m !== 'paused';
   $('#overActions').hidden = m !== 'over';
@@ -2483,11 +2498,11 @@ function setMode(m) {
   $('#puzzlePanel').hidden = m !== 'puzzle';
   $('#lessonPanel').hidden = m !== 'lesson';
   $('#onlinePanel').hidden = m !== 'online';
-  const tab = m === 'online' || (m === 'review' && S.line && S.line.source === 'online') ? 'btnOnline' : m === 'puzzle' ? 'btnPuzzles' : m === 'lesson' ? 'btnOpenings' : m === 'review' && S.line && S.line.source === 'pgn' ? 'btnImport' : 'btnNew';
+  const tab = m === 'online' ? 'btnOnline' : m === 'puzzle' ? 'btnPuzzles' : m === 'lesson' ? 'btnOpenings' : ['review', 'import', 'analysis', 'edit'].includes(m) ? 'btnImport' : 'btnNew';
   document.querySelectorAll('.tab').forEach(t => { if (t.id === tab) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current'); });
-  $('#evalBar').hidden = m !== 'review';
+  $('#evalBar').hidden = !hasEvalBar(m);
   $('#overActions').querySelector('#btnRematch').hidden = !(S.line && S.line.source === 'play');
-  if ((prev === 'review') !== (m === 'review')) layoutBoard();
+  if (hasEvalBar(prev) !== hasEvalBar(m)) layoutBoard();
   renderSideTabs(prev !== m);
   disarm();
   if (window.WP_ONLINE) window.WP_ONLINE.qbar();   // the matchmaking bar shows everywhere but the lobby
@@ -2497,12 +2512,15 @@ function setMode(m) {
    belong to another tab (data-tab-off). With a single tab there is no tab row: the section's heading is the title.
    A new page starts on its first tab; within a page, the tab you picked stays. */
 const SIDE = { tab: null, ids: '' };
-const SIDE_SECTIONS = ['setupCard', 'reviewCta', 'puzzlePanel', 'lessonPanel', 'reviewPanel', 'sheet', 'onlinePanel'];
+const SIDE_SECTIONS = ['setupCard', 'importPanel', 'puzzlePanel', 'lessonPanel', 'reviewPanel', 'analysisPanel', 'editPanel', 'sheet', 'onlinePanel'];
 function sideTabs() {
   const m = S.mode; const moves = { id: 'moves', label: 'Moves', els: ['sheet'] };
-  if (m === 'idle') return [{ id: 'new', label: 'Play Stockfish', els: ['setupCard'] }, { id: 'rv', label: 'Review a game', els: ['reviewCta'] }];
+  if (m === 'idle') return [{ id: 'new', label: 'Play Stockfish', els: ['setupCard'] }];
+  if (m === 'import') return [{ id: 'import', label: 'Review a game', els: ['importPanel'] }];
+  if (m === 'analysis') return [{ id: 'analysis', label: 'Analysis', els: ['analysisPanel', 'sheet'] }];
+  if (m === 'edit') return [{ id: 'edit', label: 'Set up a position', els: ['editPanel'] }];
   if (m === 'over') return [moves, { id: 'new', label: 'New game', els: ['setupCard'] }];
-  if (m === 'review') return [{ id: 'review', label: 'Review', els: ['reviewPanel'] }, moves];
+  if (m === 'review') return [{ id: 'review', label: 'Review', els: ['reviewPanel', 'sheet'] }];   // the note and the moves together
   if (m === 'puzzle') return [{ id: 'puzzle', label: 'Puzzle', els: ['puzzlePanel'] }, moves];
   if (m === 'lesson') return [{ id: 'lesson', label: 'Lesson', els: ['lessonPanel'] }, moves];
   // an online game keeps its moves, offers and messages together, like chess.com, so an offer can't hide behind a tab
@@ -2544,12 +2562,13 @@ function materialCaps(fen) {
   return { caps, diff: mat.w - mat.b };
 }
 function renderPlates() {
-  const L = S.line; const fen = L ? L.fens[S.view] : START_FEN;
-  const { caps, diff } = materialCaps(fen);
+  const L = S.line; const fen = boardFen();
+  const { caps, diff } = S.mode === 'edit' ? { caps: { w: [], b: [] }, diff: 0 } : materialCaps(fen);
   const top = S.orientation === 'w' ? 'b' : 'w', bot = S.orientation;
   const nameOf = (c) => {
     if (L) return { n: L.names[c], s: L.subs[c] };
     if (S.mode === 'online' && window.WP_ONLINE) return window.WP_ONLINE.plate(c);
+    if (['lesson', 'puzzle', 'import', 'edit'].includes(S.mode)) return { n: c === 'w' ? 'White' : 'Black', s: '' };
     const pc = S.settings.color === 'b' ? 'b' : 'w';
     const op = curPersona();
     return c === pc ? { n: 'You', s: c === 'w' ? 'White' : 'Black' } : { n: botName(op), s: op ? `Bot · ≈${S.settings.elo}` : eloLabel(S.settings.elo) };
@@ -2575,7 +2594,7 @@ function renderSheet() {
   const moves = L ? L.moves : [];
   const startFen = L ? L.startFen : START_FEN; const parts = startFen.split(' ');
   const startNo = +parts[5] || 1; const off = parts[1] === 'b' ? 1 : 0;
-  const rows = Math.max(Math.ceil((moves.length + off) / 2), 8);
+  const rows = Math.ceil((moves.length + off) / 2);   // only the rows that have moves, like chess.com
   const rv = S.mode === 'review' ? S.review : null;
   for (let r = 0; r < rows; r++) {
     let cells = '';
@@ -2588,10 +2607,11 @@ function renderSheet() {
     }
     html += `<div class="mrow"><span class="mno">${startNo + r}</span>${cells}</div>`;
   }
-  list.innerHTML = html;
+  list.innerHTML = html || '<p class="mempty">No moves yet.</p>';
   const cur = list.querySelector('.mv.cur');
   if (cur) { const lt = list.getBoundingClientRect(), ct = cur.getBoundingClientRect(); if (ct.bottom > lt.bottom - 4 || ct.top < lt.top + 4) list.scrollTop += (ct.top - lt.top) - lt.height / 2 + ct.height / 2; }
   else if (!moves.length) list.scrollTop = 0;
+  if (L && L.source === 'analysis' && S.mode === 'analysis') { $('#sheetTc').textContent = 'Analysis'; $('#sheetResult').textContent = moves.length ? 'Your line' : 'No moves yet'; return; }
   if (L && L.source === 'puzzle') $('#sheetTc').textContent = 'Puzzle'; else if (L && L.source === 'lesson') $('#sheetTc').textContent = L.headers.Event || 'Opening';
   if (L && (L.source === 'puzzle' || L.source === 'lesson')) { $('#sheetResult').textContent = L.source === 'puzzle' ? 'Puzzle line' : 'Opening line'; return; }
   $('#sheetResult').innerHTML = L && L.result !== '*' ? `<b>${L.result.replace('1/2-1/2', '½–½').replace('-', '–')}</b>&nbsp; ${esc(resultSentence())}` : L && moves.length ? 'Game in progress' : 'Game not started';
@@ -2613,8 +2633,8 @@ function renderBanner() {
 }
 function renderNav() {
   const n = liveIndex();
-  $('#navFirst').disabled = $('#navPrev').disabled = S.view <= 0;
-  $('#navNext').disabled = $('#navLast').disabled = S.view >= n;
+  $('#navFirst').disabled = S.view <= 0 && !EX.active; $('#navPrev').disabled = S.view <= 0 && !EX.active;
+  $('#navNext').disabled = S.view >= n || EX.active; $('#navLast').disabled = S.view >= n && !EX.active;
   const note = $('#viewNote');
   if (S.premoves.length && S.view === n && (S.mode === 'play' || S.mode === 'online')) note.textContent = premoveNote();
   else if (S.mode === 'play' && S.view < n) note.textContent = coarse() ? 'Looking back. Tap ▶| to return to the game.' : 'Looking back. Press → or End to return to the game.';
@@ -2629,16 +2649,22 @@ function renderNav() {
 function renderAll() {
   renderPlates(); renderSheet(); renderHighlights(); renderBanner(); renderNav(); updateClock();
   if (S.mode === 'review') renderReview();
+  if (S.mode === 'analysis') { renderAnalysis(); renderEvalBar(); }
+  if (S.mode === 'edit') renderEditor();
   if (S.mode === 'puzzle' || S.mode === 'lesson') renderTrainer();
   if (S.mode === 'online' && window.WP_ONLINE) window.WP_ONLINE.render();
   boardEl().classList.toggle('can-move', canUserMove() || canPremove());
 }
 function goTo(ply, animate = true) {
-  if (!S.line) return; ply = clamp(ply, 0, liveIndex()); if (ply === S.view) return;
+  if (!S.line) return; ply = clamp(ply, 0, liveIndex());
+  // Stepping through the game leaves your own moves behind; the move you were at shows again
+  if (EX.active) { exploreExit(); if (ply === S.view) { S.sel = null; S.legal = []; renderPieces(S.line.fens[ply], animate); renderAll(); return; } }
+  if (ply === S.view) return;
   if (!AP.own && (AP.on || AP.stop)) apPause();   // stepping by hand takes over from Play through
   S.view = ply; S.sel = null; S.legal = []; closePromo(); if (ply !== liveIndex()) S.premoves = [];
   renderPieces(S.line.fens[ply], animate); renderAll();
-  if ((S.mode === 'review' || S.mode === 'lesson') && ply > 0) { const mv = S.line.moves[ply - 1]; if (mv.captured) Snd.clack(.5, 1300); else Snd.clack(.4, 1600); }
+  if ((S.mode === 'review' || S.mode === 'lesson' || S.mode === 'analysis') && ply > 0) { const mv = S.line.moves[ply - 1]; if (mv.captured) Snd.clack(.5, 1300); else Snd.clack(.4, 1600); }
+  if (S.mode === 'analysis') anLook();
 }
 function flip() { S.orientation = S.orientation === 'w' ? 'b' : 'w'; renderCoords(); repositionAll(); drawBoardCanvas(); renderAll(); }
 function announce(t) { const l = $('#live'); l.textContent = ''; setTimeout(() => { l.textContent = t; }, 30); }
@@ -2802,8 +2828,9 @@ function renderReview() {
   renderDeep();
   // accuracy
   $('#accRow').innerHTML = ['w', 'b'].map(c => {
-    const a = accuracyOf(c);
-    return `<div class="acc-side"><span class="acc-name">${pieceSVG(c + 'K')}<span>${esc(L.names[c])}</span></span><span class="acc-num">${a == null ? '–' : a.toFixed(1)}</span><span class="acc-lbl">accuracy</span></div>`;
+    // only once Stockfish has been through the whole game, like chess.com: a figure from part of it would mislead
+    const a = R.done ? accuracyOf(c) : null; const num = !R.done ? '…' : a == null ? '–' : a.toFixed(1);
+    return `<div class="acc-side"><span class="acc-name">${pieceSVG(c + 'K')}<span>${esc(L.names[c])}</span></span><span class="acc-num">${num}</span><span class="acc-lbl">accuracy</span></div>`;
   }).join('');
   // counts
   const cnt = { w: {}, b: {} }; L.moves.forEach((m, i) => { const c = R.cls[i]; if (c) cnt[m.color][c] = (cnt[m.color][c] || 0) + 1; });
@@ -2824,7 +2851,7 @@ function depthText(R) {
 }
 function keyMoments() { const R = S.review; if (!R) return []; const out = []; R.cls.forEach((c, i) => { if (c === 'mistake' || c === 'blunder' || c === 'inaccuracy') out.push(i + 1); }); return out; }
 function renderEvalBar() {
-  const R = S.review; const ev = R.evals[S.view]; const bar = $('#evalBar');
+  const ev = viewEval(); const bar = $('#evalBar');
   const pct = ev ? whiteWin(ev) : 50;
   bar.classList.toggle('flip', S.orientation === 'b');
   $('#ebFill').style.height = pct.toFixed(1) + '%';
@@ -2856,13 +2883,14 @@ function renderGraph() {
 function renderAnnot() {
   const R = S.review, L = S.line; const el = $('#annot'); const v = S.view;
   el.classList.remove('ap-stop');
+  if (EX.active) { exploreAnnot(el); return; }
   const ev = R.evals[v]; const evTxt = fmtEval(ev); const whiteish = ev && whiteWin(ev) >= 50;
   const evChip = `<span class="annot-eval${whiteish ? ' wht' : ''}">${evTxt}</span>`;
   if (v === 0) {
     const keys = keyMoments().length;
     el.style.removeProperty('--cc');
     el.innerHTML = `<div class="annot-top"><span class="annot-badge" style="--cc:var(--ink-soft)">♙</span><span class="annot-title">Starting position</span>${evChip}</div>
-      <p class="annot-body">${R.done ? `${coarse() ? 'Step through with the ▶ button, tap the graph' : 'Step through with →, click the graph'} or pick a move under Moves, or press <b>Play through</b> to watch the game and stop at the moments that matter. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
+      <p class="annot-body">${R.done ? `${coarse() ? 'Step through with the ▶ button, tap the graph' : 'Step through with →, click the graph'} or pick a move in the list, or press <b>Play through</b> to watch the game and stop at the moments that matter. You can also move the pieces yourself to try other moves. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
     return;
   }
   const i = v - 1; const mv = L.moves[i]; const cls = R.cls[i];
@@ -2920,6 +2948,7 @@ function apStopCount() { const R = S.review; return R ? R.cls.filter(c => AP_STO
 function apMove(ply) { AP.own = true; try { goTo(ply); } finally { AP.own = false; } }
 function apStart() {
   if (S.mode !== 'review' || !S.line || !S.review) return;
+  if (EX.active) { exploreExit(); renderPieces(S.line.fens[S.view], false); renderAll(); }
   if (S.view >= liveIndex()) apMove(0);
   AP.on = true; AP.stop = 0; AP.waiting = false;
   clearTimeout(AP.timer); AP.timer = setTimeout(apStep, 350);
@@ -2963,7 +2992,9 @@ function renderAutoPlay() {
   const label = { pause: 'Pause', continue: 'Continue', again: 'Play again', here: 'Play from here', play: 'Play through' }[state];
   const icon = AP_ICONS[state === 'pause' ? 'pause' : state === 'again' ? 'again' : 'play'];
   btn.innerHTML = `${icon}<span>${label}</span>`;
-  tool.innerHTML = `${icon}<span>${state === 'pause' ? 'Pause' : state === 'continue' ? 'Continue' : 'Play'}</span>`;
+  // Under the board only an icon, so it can't be mistaken for the menu's Play; "Continue" keeps its word at a stop
+  tool.innerHTML = state === 'continue' ? `${icon}<span>Continue</span>` : icon; tool.classList.toggle('ap-text', state === 'continue');
+  tool.title = `${label} (Space)`;
   tool.setAttribute('aria-label', label); btn.setAttribute('aria-pressed', String(AP.on)); tool.setAttribute('aria-pressed', String(AP.on));
   document.querySelectorAll('#apSpeed .ap-sp').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.sp === apSpeed())));
   const n = apStopCount(); const graded = R.cls.filter(Boolean).length; const total = S.line.moves.length;
@@ -2975,16 +3006,289 @@ function renderAutoPlay() {
   else note = n ? `Replays the game and stops at the ${n === 1 ? 'one moment' : `${n} moments`} that matter: brilliant and great moves, mistakes and blunders.` : 'Replays the game. Nothing in it is brilliant, great, a mistake or a blunder, so it plays straight through.';
   $('#apNote').innerHTML = note;
   // under the board too, for phones, where the review panel sits below the board
-  $('#viewNote').textContent = AP.on ? (AP.waiting ? 'Waiting for Stockfish to grade this move…' : 'Playing through the game…') : AP.stop ? 'Paused at a key moment. Press Continue to go on.' : '';
+  $('#viewNote').textContent = AP.on ? (AP.waiting ? 'Waiting for Stockfish to grade this move…' : 'Playing through the game…') : AP.stop ? 'Paused at a key moment. Press Continue to go on.'
+    : EX.active ? (coarse() ? 'Your own moves. ◀ takes one back.' : 'Your own moves. ← takes one back.') : '';
 }
 function exitReview() {
   apPause();
   if (S.review) S.review.token++;
   for (const e of ENG.pool) e.cancelAll();
   if (S.line && S.line.source === 'online' && window.WP_ONLINE) { window.WP_ONLINE.open(); return; }
+  if (S.line && S.line.source === 'analysis') { S.review = null; setMode('analysis'); S.view = liveIndex(); renderCoords(); renderPieces(S.line.fens[S.view], false); drawBoardCanvas(); renderAll(); anLook(); save(); return; }
+  if (S.line && S.line.source === 'pgn') { openReviewPage(); return; }
   if (S.line && S.line.source === 'play' && S.game) { setMode('over'); S.orientation = S.game.playerColor; }
   else { S.line = null; S.game = null; S.chess = null; S.review = null; setMode('idle'); S.orientation = S.settings.color === 'b' ? 'b' : 'w'; }
   S.view = liveIndex(); renderCoords(); renderPieces(S.line ? S.line.fens[S.view] : START_FEN, false); drawBoardCanvas(); renderAll(); save();
+}
+
+/* =====================================================================
+   Your own moves. In a review you can move the pieces yourself: Stockfish
+   answers, and the game stays as it was ("exploring", like chess.com).
+   On the analysis board the moves you play are the line, and Stockfish
+   looks at every position you reach. The position editor sets one up.
+   ===================================================================== */
+const EX = { active: false, base: 0, moves: [], fens: [], peek: null };
+const AN = { cache: new Map(), token: 0 };          // Stockfish's view of positions, by FEN
+const AN_DEPTH = 18, AN_MS = 2000, AN_LINES = 3;
+const hasEvalBar = (m) => m === 'review' || m === 'analysis';
+const freeBoard = () => S.mode === 'review' || S.mode === 'analysis';
+const PENCIL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.2V21h3.8l11-11-3.8-3.8zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.8 3.8z"/></svg>';
+// The position on the board right now
+function boardFen() {
+  if (S.mode === 'edit') return editFen();
+  if (EX.active) return EX.fens[EX.fens.length - 1];
+  return S.line ? S.line.fens[S.view] : START_FEN;
+}
+// The rules for a move made by hand: in a game the game itself, in a review or on the analysis board the position shown
+function inputChess() {
+  if (!freeBoard()) return S.chess;
+  const fen = boardFen();
+  if (!EX.peek || EX.peek.fen !== fen) EX.peek = { fen, c: chessAt(fen) };
+  return EX.peek.c;
+}
+function moveSound(c, mv) { if (c.in_check()) Snd.check(); else if (mv.captured) Snd.capture(); else Snd.move(); }
+function freeMove(from, to, promo) {
+  const c = inputChess(); const mv = c.move({ from, to, promotion: promo || 'q' }); EX.peek = null; if (!mv) return;
+  mv.uci = mv.from + mv.to + (mv.promotion || '');
+  S.sel = null; S.legal = []; const L = S.line;
+  // the move that comes next in the line anyway: just step on
+  if (!EX.active && S.view < L.moves.length && L.moves[S.view].uci === mv.uci) { goTo(S.view + 1); return; }
+  if (S.mode === 'analysis') {
+    L.moves.length = S.view; L.fens.length = S.view + 1;   // a different move here replaces the rest of the line
+    L.moves.push(mv); L.fens.push(c.fen()); S.view = L.moves.length; L.result = '*';
+    moveSound(c, mv); renderPieces(boardFen()); renderAll(); anLook(); save(); return;
+  }
+  if (!EX.active) { apPause(); Object.assign(EX, { active: true, base: S.view, moves: [], fens: [L.fens[S.view]] }); }
+  EX.moves.push(mv); EX.fens.push(c.fen());
+  moveSound(c, mv); renderPieces(boardFen()); renderAll(); anLook();
+}
+// Take back the last of your own moves (←). With none left, the board is back at the game.
+function exploreBack() {
+  if (!EX.active) return false;
+  EX.moves.pop(); EX.fens.pop(); if (!EX.moves.length) exploreExit();
+  S.sel = null; S.legal = []; renderPieces(boardFen()); renderAll(); anLook(); return true;
+}
+function exploreExit() { EX.active = false; EX.moves = []; EX.fens = []; EX.peek = null; }
+function stepBack() { if (!exploreBack()) goTo(S.view - 1); }
+function stepOn() { if (!EX.active) goTo(S.view + 1); }
+
+// ---- Stockfish's view of the position on the board (the analysis board, and your own moves in a review)
+function anEv(fen, x) { const stm = fen.split(' ')[1] === 'w' ? 1 : -1; return x.mate != null ? { mate: x.mate * stm } : { cp: Math.round((x.cp || 0) * EVAL_SCALE) * stm }; }
+function anTerminal(fen) { const c = chessAt(fen); if (c.in_checkmate()) return { mated: c.turn() }; if (c.in_stalemate() || c.insufficient_material()) return { cp: 0, draw: true }; return null; }
+async function anLook() {
+  if (!(S.mode === 'analysis' || (S.mode === 'review' && EX.active))) return;
+  const fen = boardFen(); const token = ++AN.token; const analysis = S.mode === 'analysis';
+  renderLook();
+  const have = AN.cache.get(fen); if (have && have.full) return;
+  const term = anTerminal(fen);
+  if (term) { AN.cache.set(fen, { ev: term, lines: [], best: null, depth: 0, full: true }); renderLook(); return; }
+  await ENG.ready; if (!ENG.main || token !== AN.token) return;
+  // On the analysis board nothing else uses Stockfish, so the search of a position you already left stops.
+  // In a review your position waits its turn behind the review's own work.
+  if (analysis) ENG.main.cancelAll();
+  const res = await ENG.main.search({ fen, depth: AN_DEPTH, movetime: AN_MS, skill: 20, multipv: AN_LINES });
+  if (!res || !res.info) return;
+  const lines = (res.lines || []).filter(x => x && x.pv && x.pv.length).map(x => ({ ev: anEv(fen, x), pv: x.pv }));
+  if (AN.cache.size > 400) AN.cache.delete(AN.cache.keys().next().value);
+  // a search that was stopped because you moved on is kept, but looked at again when you come back
+  AN.cache.set(fen, { ev: anEv(fen, res.info), lines, best: res.bestmove, depth: res.info.depth || 0, full: !(analysis && token !== AN.token) });
+  if (fen === boardFen()) renderLook();
+}
+function renderLook() {
+  if (S.mode === 'analysis') { renderAnalysis(); renderEvalBar(); renderArrows(); }
+  else if (S.mode === 'review' && S.review) { renderAnnot(); renderEvalBar(); renderArrows(); }
+}
+function viewEval() {
+  if (S.mode === 'analysis' || EX.active) { const a = AN.cache.get(boardFen()); return a ? a.ev : null; }
+  return S.review ? S.review.evals[S.view] : null;
+}
+function lookArrow() { const a = AN.cache.get(boardFen()); return a && a.best ? arrowPath(a.best.slice(0, 2), a.best.slice(2, 4), 'var(--c-best)') : ''; }
+function lookText(fen, a) {
+  const term = anTerminal(fen);
+  if (term) return term.mated ? `Checkmate. ${term.mated === 'w' ? 'Black' : 'White'} wins.` : 'A draw: stalemate, or too little material to mate.';
+  if (!a || !a.lines.length) return '<span class="spinner"></span>Stockfish is looking at this position…';
+  return null;
+}
+// The note in a review while you try your own moves
+function exploreAnnot(el) {
+  const L = S.line; const fen = boardFen(); const a = AN.cache.get(fen); const ev = a ? a.ev : null;
+  el.style.removeProperty('--cc');
+  const from = EX.base === 0 ? 'From the starting position' : `After ${moveLabel(EX.base - 1)} ${sanHTML(L.moves[EX.base - 1].san)}`;
+  const line = pvToSan(L.fens[EX.base], EX.moves.map(m => m.uci), 99);
+  const game = EX.base < L.moves.length ? `<p class="annot-line">In the game: ${moveLabel(EX.base)} <b>${sanHTML(L.moves[EX.base].san)}</b></p>` : '';
+  const look = lookText(fen, a) || `Stockfish’s best line here: ${pvToSan(fen, a.lines[0].pv, 6)}`;
+  el.innerHTML = `<div class="annot-top"><span class="annot-badge" style="--cc:var(--brass-lo, #8a5733)">${PENCIL_SVG}</span><span class="annot-title">Your own moves</span><span class="annot-eval${ev && whiteWin(ev) >= 50 ? ' wht' : ''}">${fmtEval(ev)}</span></div>
+    <p class="annot-body">${from}: ${line}</p><p class="annot-line">${look}</p>${game}
+    <div class="actions ex-actions"><button class="btn btn-small" data-ex="undo">Take back</button><button class="btn btn-small" data-ex="game">Back to the game</button></div>`;
+}
+
+// ---- the analysis board
+function leaveBoard() {
+  apPause(); trainerStop(); clearTimers();
+  if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll());
+  S.engineToken++; if (ENG.main) ENG.main.cancelAll();
+  exploreExit();
+  S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0;
+  S.premoves = []; S.sel = null; S.legal = []; S.bannerOpen = false; closePromo();
+}
+function openAnalysis(fen = START_FEN, orientation) {
+  leaveBoard();
+  S.line = newLine(fen, { w: 'White', b: 'Black' }, { w: '', b: '' }, { source: 'analysis' });
+  S.chess = chessAt(fen); S.orientation = orientation || 'w';
+  $('#anFenForm').hidden = true; $('#anErr').hidden = true;
+  setMode('analysis'); renderCoords(); drawBoardCanvas(); renderPieces(fen, false); renderAll(); anLook(); save();
+}
+function renderAnalysis() {
+  if (S.mode !== 'analysis' || !S.line) return;
+  const fen = boardFen(); const a = AN.cache.get(fen);
+  const wait = lookText(fen, a);
+  const lines = wait ? `<p class="an-empty">${wait}</p>` : `<div class="an-lines">${a.lines.map((x, k) => `<button class="an-line" data-an-line="${k}" title="Play ${esc(uciToSan(fen, x.pv[0]) || '')}"><span class="annot-eval${whiteWin(x.ev) >= 50 ? ' wht' : ''}">${fmtEval(x.ev)}</span><span class="an-pv">${pvToSan(fen, x.pv, 8)}</span></button>`).join('')}</div>`;
+  const depth = a && a.depth ? `<p class="fine an-depth">Stockfish ${SF_VERSION} · depth ${a.depth}</p>` : '';
+  const html = `<p class="an-turn">${fen.split(' ')[1] === 'w' ? 'White' : 'Black'} to move</p>${lines}${depth}`;
+  const el = $('#anLook'); if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  $('#anReview').hidden = !S.line.moves.length;
+}
+// What is wrong with a position, in words, or null when it can be played from
+function positionProblem(fen) {
+  const v = new Chess().validate_fen(fen); if (!v.valid) return `That is not a FEN Woodpusher can read: ${v.error}`;
+  const map = boardMap(fen); const all = Object.entries(map); const n = (code) => all.filter(([, c]) => c === code).length;
+  if (n('wK') !== 1 || n('bK') !== 1) return 'Each side needs exactly one king.';
+  if (all.some(([sq, c]) => c[1] === 'P' && (sq[1] === '1' || sq[1] === '8'))) return 'Pawns can’t stand on the first or the last rank.';
+  if (all.filter(([, c]) => c[0] === 'w').length > 16 || all.filter(([, c]) => c[0] === 'b').length > 16) return 'One side has more than 16 pieces.';
+  const parts = fen.split(' '); const other = parts[1] === 'w' ? 'b' : 'w';
+  const swapped = [parts[0], other, '-', '-', '0', '1'].join(' ');
+  try { if (new Chess(swapped).in_check()) return `${other === 'w' ? 'White' : 'Black'} is in check, but it’s ${parts[1] === 'w' ? 'White' : 'Black'}’s move.`; } catch (e) {}
+  return null;
+}
+function copyText(text, what) {
+  const fallback = () => { $('#expTitle').textContent = what; $('#exportText').value = text; $('#exportModal').hidden = false; $('#exportText').focus(); $('#exportText').select(); };
+  try { navigator.clipboard.writeText(text).then(() => toast(`${what} copied to the clipboard.`), fallback); } catch (e) { fallback(); }
+}
+
+// ---- the position editor
+const EDIT = { map: {}, turn: 'w', tool: 'move', sel: null, back: null };
+const EDIT_PIECES = ['wK', 'wQ', 'wR', 'wB', 'wN', 'wP', 'bK', 'bQ', 'bR', 'bB', 'bN', 'bP'];
+const HAND_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.5 3.5H13v5h5V8l3.5 3.5L18 15v-2.5h-5v5h2.5L12 21l-3.5-3.5H11v-5H6V15l-3.5-3.5L6 8v2.5h5v-5H8.5z"/></svg>';
+const ERASER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.2 3.6a2 2 0 0 1 2.8 0l2.4 2.4a2 2 0 0 1 0 2.8L12.2 18H19v2H8.6l-5-5a2 2 0 0 1 0-2.8zM5 13.6l3.8 3.8h1.9l1.6-1.6-4.6-4.6z"/></svg>';
+const PIECE_NAMES = { K: 'king', Q: 'queen', R: 'rook', B: 'bishop', N: 'knight', P: 'pawn' };
+function editFen() {
+  const m = EDIT.map; const rows = [];
+  for (let r = 8; r >= 1; r--) {
+    let row = '', gap = 0;
+    for (const f of 'abcdefgh') { const code = m[f + r]; if (!code) { gap++; continue; } if (gap) { row += gap; gap = 0; } row += code[0] === 'w' ? code[1] : code[1].toLowerCase(); }
+    rows.push(row + (gap ? gap : ''));
+  }
+  // castling where king and rook still stand on their first squares
+  let cs = '';
+  if (m.e1 === 'wK' && m.h1 === 'wR') cs += 'K'; if (m.e1 === 'wK' && m.a1 === 'wR') cs += 'Q';
+  if (m.e8 === 'bK' && m.h8 === 'bR') cs += 'k'; if (m.e8 === 'bK' && m.a8 === 'bR') cs += 'q';
+  return `${rows.join('/')} ${EDIT.turn} ${cs || '-'} - 0 1`;
+}
+function openEditor(fen = START_FEN) {
+  const back = S.mode === 'analysis' && S.line ? { line: S.line, view: S.view, orientation: S.orientation } : null;
+  leaveBoard();
+  Object.assign(EDIT, { map: boardMap(fen), turn: fen.split(' ')[1] === 'b' ? 'b' : 'w', tool: 'move', sel: null, back });
+  if (back) S.orientation = back.orientation;
+  $('#edErr').hidden = true;
+  $('#edHelp').textContent = coarse()
+    ? 'Pick a piece, then tap the squares where it goes. Tap a piece of the same kind again to take it off. With the hand, tap a piece and then its new square.'
+    : 'Pick a piece, then click the squares where it goes. Click a piece of the same kind again to take it off. With the hand, click a piece and then its new square. Right-click removes a piece.';
+  setMode('edit'); renderCoords(); drawBoardCanvas(); renderPieces(editFen(), false); renderAll();
+}
+function renderEditor() {
+  if (S.mode !== 'edit') return;
+  const tools = [['move', HAND_SVG, 'Hand: move pieces', true], ...EDIT_PIECES.map(c => [c, pieceSVG(c), `${c[0] === 'w' ? 'White' : 'Black'} ${PIECE_NAMES[c[1]]}`, false]), ['erase', ERASER_SVG, 'Eraser', true]];
+  const html = tools.map(([id, svg, label, ic]) => `<button class="ed-tool${ic ? ' ic' : ''}" data-tool="${id}" aria-label="${label}" title="${label}" aria-pressed="${EDIT.tool === id}">${svg}</button>`).join('');
+  const el = $('#edTools'); if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  document.querySelectorAll('#edTurn .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.turn === EDIT.turn)));
+}
+function editPointer(e) {
+  const sq = sqFromEvent(e); if (!sq) return; e.preventDefault();
+  const m = EDIT.map;
+  if (e.button === 2) { delete m[sq]; EDIT.sel = null; }
+  else if (e.button !== undefined && e.button !== 0) return;
+  else if (EDIT.tool === 'move') {
+    if (EDIT.sel) { if (EDIT.sel !== sq) { m[sq] = m[EDIT.sel]; delete m[EDIT.sel]; } EDIT.sel = null; }
+    else if (m[sq]) EDIT.sel = sq;
+  } else if (EDIT.tool === 'erase') delete m[sq];
+  else if (m[sq] === EDIT.tool) delete m[sq];
+  else {
+    if (EDIT.tool[1] === 'K') for (const k of Object.keys(m)) if (m[k] === EDIT.tool) delete m[k];   // one king a side: it moves here
+    m[sq] = EDIT.tool;
+  }
+  $('#edErr').hidden = true; Snd.clack(.3, 2200);
+  renderPieces(editFen(), false); renderHighlights(); renderPlates();
+}
+function editDone() {
+  const fen = editFen(); const bad = positionProblem(fen);
+  if (bad) { $('#edErr').textContent = bad; $('#edErr').hidden = false; return; }
+  openAnalysis(fen, S.orientation);
+}
+function editCancel() {
+  const back = EDIT.back; EDIT.back = null;
+  if (!back) { openReviewPage(); return; }
+  S.line = back.line; S.view = back.view; S.orientation = back.orientation; S.chess = chessAt(S.line.fens[S.line.fens.length - 1]);
+  setMode('analysis'); renderCoords(); drawBoardCanvas(); renderPieces(boardFen(), false); renderAll(); anLook();
+}
+
+// ---- the Review a game page
+function openReviewPage(tab) {
+  leaveBoard(); S.orientation = 'w';
+  setMode('import'); renderCoords(); drawBoardCanvas(); renderPieces(START_FEN, false); renderAll(); save();
+  if (window.WP_IMPORT) window.WP_IMPORT.open(tab);
+}
+
+// ---- marks: right-click a square to mark it, right-drag for an arrow: orange, or green with Shift, red with
+// Ctrl, blue with Alt, like chess.com. A left click on the board clears them. They belong to the position they
+// were drawn on, so they go when the position changes.
+const MK = { fen: null, arrows: [], squares: [], start: null, col: 'o' };
+const MK_COLORS = { o: '#f0a020', g: '#6fae2a', r: '#e2452f', b: '#3a8ce6' };
+const marksHere = () => MK.fen === boardFen() && (MK.arrows.length > 0 || MK.squares.length > 0);
+function clearMarks() { if (!MK.arrows.length && !MK.squares.length) return false; MK.arrows = []; MK.squares = []; renderHighlights(); return true; }
+function markStart(e) {
+  if (e.pointerType === 'touch') return;
+  if (S.premoves.length) { clearPremoves(); return; }    // right-click cancels premoves, as before
+  if (S.sel && !dragState) selectSq(null);
+  const sq = sqFromEvent(e); if (!sq) return;
+  MK.start = sq; MK.col = e.shiftKey ? 'g' : (e.ctrlKey || e.metaKey) ? 'r' : e.altKey ? 'b' : 'o';
+  try { boardEl().setPointerCapture(e.pointerId); } catch (_) {}
+}
+function markEnd(e) {
+  const from = MK.start; MK.start = null; if (!from) return;
+  const to = sqFromEvent(e); if (!to) return;
+  if (MK.fen !== boardFen()) { MK.fen = boardFen(); MK.arrows = []; MK.squares = []; }
+  const toggle = (list, same, item) => { const i = list.findIndex(same); const was = i >= 0 ? list[i] : null; if (i >= 0) list.splice(i, 1); if (!was || was.col !== item.col) list.push(item); };
+  if (to === from) toggle(MK.squares, x => x.sq === from, { sq: from, col: MK.col });
+  else toggle(MK.arrows, x => x.from === from && x.to === to, { from, to, col: MK.col });
+  renderHighlights();
+}
+
+function wireFree() {
+  $('#annot').addEventListener('click', (e) => { const b = e.target.closest('[data-ex]'); if (!b) return; if (b.dataset.ex === 'undo') exploreBack(); else goTo(S.view); });
+  $('#anLook').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-an-line]'); if (!b) return;
+    const a = AN.cache.get(boardFen()); const x = a && a.lines[+b.dataset.anLine]; if (!x) return;
+    const u = x.pv[0]; freeMove(u.slice(0, 2), u.slice(2, 4), u[4]);
+  });
+  $('#anDone').addEventListener('click', () => openReviewPage());
+  $('#anSetup').addEventListener('click', () => openEditor(boardFen()));
+  $('#anCopyFen').addEventListener('click', () => copyText(boardFen(), 'FEN'));
+  $('#anReview').addEventListener('click', () => { if (S.line && S.line.moves.length) startReview(); });
+  $('#anFenBtn').addEventListener('click', () => { const f = $('#anFenForm'); f.hidden = !f.hidden; $('#anErr').hidden = true; if (!f.hidden) { $('#anFen').value = ''; $('#anFen').focus(); } });
+  $('#anFenForm').addEventListener('submit', (e) => {
+    e.preventDefault(); const fen = $('#anFen').value.trim().replace(/\s+/g, ' ');
+    const full = fen.split(' ').length === 4 ? fen + ' 0 1' : fen;   // a FEN without move counters is fine too
+    const bad = !fen ? 'Paste a FEN first.' : positionProblem(full);
+    if (bad) { $('#anErr').textContent = bad; $('#anErr').hidden = false; return; }
+    openAnalysis(full);
+  });
+  $('#edTools').addEventListener('click', (e) => { const b = e.target.closest('[data-tool]'); if (!b) return; EDIT.tool = b.dataset.tool; EDIT.sel = null; renderEditor(); renderHighlights(); });
+  $('#edTurn').addEventListener('click', (e) => { const b = e.target.closest('[data-turn]'); if (!b) return; EDIT.turn = b.dataset.turn; $('#edErr').hidden = true; renderEditor(); });
+  $('#edStart').addEventListener('click', () => { EDIT.map = boardMap(START_FEN); EDIT.turn = 'w'; EDIT.sel = null; $('#edErr').hidden = true; renderPieces(editFen(), false); renderAll(); });
+  $('#edClear').addEventListener('click', () => { EDIT.map = {}; EDIT.sel = null; $('#edErr').hidden = true; renderPieces(editFen(), false); renderAll(); });
+  $('#edFlip').addEventListener('click', flip);
+  $('#edGo').addEventListener('click', editDone);
+  $('#edCancel').addEventListener('click', editCancel);
 }
 
 /* =====================================================================
@@ -3053,7 +3357,7 @@ function copyPGN() {
    ===================================================================== */
 const STORE = 'woodpusher.v1';
 function snapshot() {
-  if (S.mode === 'puzzle' || S.mode === 'lesson' || S.mode === 'online') return S.parked || { v: 1, settings: S.settings, mode: 'idle', line: null, game: null, review: null };
+  if (['puzzle', 'lesson', 'online', 'import', 'edit'].includes(S.mode)) return S.parked || { v: 1, settings: S.settings, mode: 'idle', line: null, game: null, review: null };
   const L = S.line, g = S.game;
   return {
     v: 1, settings: S.settings, mode: S.mode, orientation: S.orientation, view: S.view,
@@ -3088,6 +3392,7 @@ function restore(d) {
     setMode(mode === 'review' ? 'review' : mode);
     renderCoords(); renderPieces(fens[S.view], false); renderAll();
     if (mode === 'review') analyse();
+    if (mode === 'analysis') anLook();
     return true;
   } catch (e) { S.line = null; S.game = null; S.chess = null; return false; }
 }
@@ -3134,18 +3439,17 @@ function wire() {
     if (S.mode === 'review') { if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
     abandonGame();
   });
-  // The dialog finds games by username (on the Woodpusher site, see importer.js) or takes a pasted PGN
-  const openImport = (tab) => { $('#pgnErr').hidden = true; $('#pgnModal').hidden = false; if (window.WP_IMPORT) window.WP_IMPORT.open(tab); else $('#pgnInput').focus(); };
-  $('#btnImport').addEventListener('click', () => openImport()); $('#btnImport2').addEventListener('click', () => openImport('paste'));
-  $('#btnFindGames').addEventListener('click', () => openImport('user'));
+  // Review a game is a page: find games by username (importer.js), paste a PGN, or open the analysis board
+  $('#btnImport').addEventListener('click', (e) => leaveForTrainer(e.currentTarget, 'Leave this game?', () => openReviewPage()));
   $('#btnSample').addEventListener('click', () => { if (S.mode === 'play') { toast('Finish or abandon your game first.'); return; } loadPGNForReview(OPERA_PGN); });
-  $('#pgnSample').addEventListener('click', () => { $('#pgnInput').value = OPERA_PGN; $('#pgnErr').hidden = true; });
-  $('#pgnCancel').addEventListener('click', () => { $('#pgnModal').hidden = true; });
+  $('#btnAnalysis').addEventListener('click', () => openAnalysis(START_FEN));
+  $('#btnSetup').addEventListener('click', () => openEditor(START_FEN));
   $('#pgnGo').addEventListener('click', () => {
     if (S.mode === 'play') { $('#pgnErr').textContent = 'Finish or abandon your current game first.'; $('#pgnErr').hidden = false; return; }
-    try { loadPGNForReview($('#pgnInput').value); $('#pgnModal').hidden = true; }
+    try { loadPGNForReview($('#pgnInput').value); $('#pgnErr').hidden = true; }
     catch (err) { $('#pgnErr').textContent = err.message; $('#pgnErr').hidden = false; }
   });
+  wireFree();
   $('#expClose').addEventListener('click', () => { $('#exportModal').hidden = true; });
   document.querySelectorAll('.modal-back').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.hidden = true; }));
   $('#btnTakeback').addEventListener('click', takeback);
@@ -3163,8 +3467,8 @@ function wire() {
   $('#btnPrevKey').addEventListener('click', () => { const k = keyMoments().filter(p => p < S.view); if (k.length) goTo(k[k.length - 1]); });
   $('#btnNextKey').addEventListener('click', () => { const k = keyMoments().find(p => p > S.view); if (k) goTo(k); });
   $('#navFirst').addEventListener('click', () => goTo(0));
-  $('#navPrev').addEventListener('click', () => goTo(S.view - 1));
-  $('#navNext').addEventListener('click', () => goTo(S.view + 1));
+  $('#navPrev').addEventListener('click', stepBack);
+  $('#navNext').addEventListener('click', stepOn);
   $('#navLast').addEventListener('click', () => goTo(liveIndex()));
   $('#navFlip').addEventListener('click', flip);
   $('#mlist').addEventListener('click', e => { const b = e.target.closest('.mv[data-ply]'); if (b) goTo(+b.dataset.ply); });
@@ -3175,16 +3479,14 @@ function wire() {
   const b = boardEl();
   b.addEventListener('pointerdown', onPointerDown); b.addEventListener('pointermove', onPointerMove);
   b.addEventListener('pointerup', onPointerUp); b.addEventListener('pointercancel', onPointerUp);
-  b.addEventListener('contextmenu', e => {
-    e.preventDefault(); if (lastPointerType === 'touch') return;
-    if (S.premoves.length) clearPremoves(); else if (S.sel && !dragState) selectSq(null);
-  });
+  // right-click is for marks (markStart): it cancels premoves and a selection there, never opens the browser's menu
+  b.addEventListener('contextmenu', e => e.preventDefault());
   document.addEventListener('keydown', e => {
     if (e.target.closest('textarea, input')) return;
-    if (e.key === 'Escape') { document.querySelectorAll('.modal-back').forEach(m => m.hidden = true); if (S.promoPending) { closePromo(); renderHighlights(); } if (S.premoves.length) clearPremoves(); if (S.sel) selectSq(null); return; }
+    if (e.key === 'Escape') { document.querySelectorAll('.modal-back').forEach(m => m.hidden = true); if (S.promoPending) { closePromo(); renderHighlights(); } if (S.premoves.length) clearPremoves(); if (S.sel) selectSq(null); clearMarks(); if (S.mode === 'edit' && EDIT.sel) { EDIT.sel = null; renderHighlights(); } return; }
     if (!document.querySelectorAll('.modal-back:not([hidden])').length) {
-      if (e.key === 'ArrowLeft') { goTo(S.view - 1); e.preventDefault(); }
-      else if (e.key === 'ArrowRight') { goTo(S.view + 1); e.preventDefault(); }
+      if (e.key === 'ArrowLeft') { stepBack(); e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { stepOn(); e.preventDefault(); }
       else if (e.key === 'Home') { goTo(0); e.preventDefault(); }
       else if (e.key === 'End') { goTo(liveIndex()); e.preventDefault(); }
       else if (e.key === 'f' || e.key === 'F') flip();
@@ -3712,7 +4014,7 @@ function wireTrainer() {
 const ONLINE_TCS = TCS.filter(t => t.base > 0);
 const ON = {
   me: null, loaded: false, sock: null, connected: false, stats: null, tc: '3+2',
-  seeking: null, challenge: null, incoming: null, game: null, games: null, authTab: 'login', authError: '', authMsg: '', busy: false,
+  seeking: null, challenge: null, incoming: null, game: null, games: null, authView: 'login', authError: '', busy: false, pending: null, newCode: null,
   confirmDelete: false, deleteError: '', offlineTick: null, remember: false,
 };
 async function api(path, opts = {}) {
@@ -3788,7 +4090,7 @@ async function loadMe() {
   // A failed request (offline) keeps whoever was logged in; only the server's answer changes it
   let known = false;
   try { const d = await api('/me'); ON.me = d.user; known = true; } catch (e) { ON.me = ON.me || null; }
-  ON.loaded = true; renderUserSection();
+  ON.loaded = true; renderUserSection(); renderAccountBtn();
   if (known && window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
   if (window.WP_PLAYERS) window.WP_PLAYERS.refresh();
 }
@@ -3899,7 +4201,10 @@ function loadGameState(st) {
   S.game = { playerColor: you || 'w', you, level: null, tc: st.tc, online: true,
     clock: { w: st.clocks.w, b: st.clocks.b, running: st.status === 'active' && st.clockRunning ? st.turn : null, last: performance.now() } };
   S.orientation = you || 'w'; S.view = liveIndex(); S.bannerOpen = st.status !== 'active' && !!st.result;
+  const fresh = !ON.shownGame || ON.shownGame !== st.id; ON.shownGame = st.id;
   setMode('online'); renderCoords(); drawBoardCanvas(); renderPieces(L.fens[S.view], false); renderAll();
+  // a game that just appeared brings the board into view (on a phone you may have scrolled down to the buttons)
+  if (fresh && st.status === 'active') { const tl = $('.table-left').getBoundingClientRect(); if (tl.top < 0) $('.table-left').scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }
   if (location.pathname !== '/game/' + st.id) history.replaceState(null, '', '/game/' + st.id);
   if (!ON.offlineTick) ON.offlineTick = setInterval(() => { if (S.mode === 'online' && ON.game && ON.game.status === 'active') renderOnlinePanel(); }, 1000);
 }
@@ -3988,18 +4293,109 @@ async function reviewOnlineGame(id, persp) {
 }
 
 /* ---------------- account ---------------- */
-async function submitAuth(form) {
-  const username = form.querySelector('[name=username]').value.trim(); const password = form.querySelector('[name=password]').value;
-  const remember = form.querySelector('[name=remember]').checked; ON.remember = remember;
-  ON.authError = ''; ON.busy = true; renderOnlinePanel();
+/* ---------------- the account dialog ----------------
+   One dialog for everything about an account: log in, create one, a forgotten password (with the recovery
+   code), changing the password and making a new recovery code. Opened from the menu, from Play online when a
+   visitor presses Find an opponent, and from Settings. ON.pending is what to do once logged in. */
+const KNOWN_KEY = 'woodpusher.known';
+const knownHere = () => { try { return localStorage.getItem(KNOWN_KEY) === '1'; } catch (e) { return false; } };
+function authBox() {
+  let m = $('#authModal');
+  if (!m) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="modal-back" id="authModal" hidden><div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle" id="authBox"></div></div>');
+    m = $('#authModal');
+    // the recovery code is shown once, so that view only closes with "I've saved it"
+    m.addEventListener('click', (e) => { if (e.target === m && ON.authView !== 'code') closeAuth(); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !m.hidden && ON.authView === 'code') e.stopImmediatePropagation(); }, true);
+    m.addEventListener('submit', (e) => { e.preventDefault(); submitAccount(e.target); });
+    m.addEventListener('change', (e) => { if (e.target.name === 'remember') ON.remember = e.target.checked; });
+    m.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-view], [data-acct]'); if (!b) return;
+      if (b.dataset.view) { ON.authView = b.dataset.view; ON.authError = ''; renderAuth(true); return; }
+      if (b.dataset.acct === 'close') closeAuth();
+      if (b.dataset.acct === 'saved') { ON.newCode = null; closeAuth(); runPending(); }
+      if (b.dataset.acct === 'copy-code') { try { await navigator.clipboard.writeText(ON.newCode); toast('Recovery code copied.'); } catch (err) { const t = $('#codeText'); if (t) { const r = document.createRange(); r.selectNodeContents(t); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } } }
+    });
+  }
+  return m;
+}
+function openAuth(view, pending) {
+  ON.authView = view || (knownHere() ? 'login' : 'register'); ON.authError = ''; ON.pending = pending || null;
+  document.querySelectorAll('.modal-back').forEach(x => { if (x.id !== 'authModal') x.hidden = true; });
+  const m = authBox(); m.hidden = false; renderAuth(true);
+}
+function closeAuth() { const m = $('#authModal'); if (m) m.hidden = true; ON.authError = ''; }
+const AUTH_TITLES = { login: 'Log in', register: 'Create an account', recover: 'Forgot your password?', code: 'Save your recovery code', password: 'Change your password', newcode: 'A new recovery code' };
+function authFormHTML() {
+  const v = ON.authView; const busy = ON.busy ? 'disabled' : '';
+  const user = '<label>Username<input class="input" name="username" autocomplete="username" maxlength="20" autocapitalize="off" spellcheck="false" required></label>';
+  const remember = `<div><label class="check"><input type="checkbox" name="remember" ${ON.remember ? 'checked' : ''}> Remember me</label><p class="fine" style="margin:4px 0 0 28px">Stay logged in on this device, also after closing the browser. Leave it off on a shared computer.</p></div>`;
+  const err = ON.authError ? `<p class="err" role="alert">${esc(ON.authError)}</p>` : '';
+  const why = ON.pending === 'seek' || ON.pending === 'challenge' ? '<p class="fine" style="margin:0">Online games need an account. It takes a few seconds: a username and a password, no email address.</p>'
+    : ON.pending === 'accept' ? '<p class="fine" style="margin:0">Log in or create an account to accept the challenge.</p>' : '';
+  if (v === 'code') return `<p style="margin:0">Woodpusher has no email address for you, so if you ever forget your password, this code is the only way back into your account. Keep it somewhere safe, such as a password manager. It is shown only now.</p>
+    <p class="code-box" id="codeText">${esc(ON.newCode || '')}</p>
+    <div class="modal-actions"><button class="btn" type="button" data-acct="copy-code">Copy</button><span class="sp"></span><button class="btn btn-brass" type="button" data-acct="saved">I’ve saved it</button></div>`;
+  if (v === 'login') return `${why}<form class="form" data-form="login" novalidate>${user}<label>Password<input class="input" name="password" type="password" autocomplete="current-password" required></label>${remember}${err}<button class="btn btn-brass" type="submit" ${busy}>Log in</button></form>
+    <div class="auth-links"><button class="back-link" type="button" data-view="recover">Forgot your password?</button><span>New here? <button class="back-link" type="button" data-view="register">Create an account</button></span></div>`;
+  if (v === 'register') return `${why}<form class="form" data-form="register" novalidate>${user}<label>Password<input class="input" name="password" type="password" autocomplete="new-password" minlength="8" required></label><p class="fine" style="margin:-4px 0 0">At least 8 characters. Usernames are public. Woodpusher stores only your username, a hashed password, your ratings and your games: no email address. <a href="/privacy.html" target="_blank" rel="noopener">Privacy statement</a></p>${remember}${err}<button class="btn btn-brass" type="submit" ${busy}>Create account</button></form>
+    <div class="auth-links"><span>Already have an account? <button class="back-link" type="button" data-view="login">Log in</button></span></div>`;
+  if (v === 'recover') return `<p class="fine" style="margin:0">Use the recovery code you saved when you created your account (or made later in Settings). It sets a new password and logs you in. Without the code there is no way back in, because Woodpusher has no email address for you.</p>
+    <form class="form" data-form="recover" novalidate>${user}<label>Recovery code<input class="input code-input" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCDE-FGHJK-LMNPQ-RSTUV" required></label><label>New password<input class="input" name="password" type="password" autocomplete="new-password" minlength="8" required></label>${remember}${err}<button class="btn btn-brass" type="submit" ${busy}>Set the new password</button></form>
+    <div class="auth-links"><button class="back-link" type="button" data-view="login">← Back to log in</button></div>`;
+  if (v === 'password') return `<form class="form" data-form="password" novalidate><input type="text" name="username" autocomplete="username" value="${esc(ON.me ? ON.me.username : '')}" hidden><label>Current password<input class="input" name="current" type="password" autocomplete="current-password" required></label><label>New password<input class="input" name="password" type="password" autocomplete="new-password" minlength="8" required></label><p class="fine" style="margin:-4px 0 0">At least 8 characters. Other devices where you are logged in are logged out.</p>${err}<div class="modal-actions"><button class="btn" type="button" data-acct="close">Cancel</button><span class="sp"></span><button class="btn btn-brass" type="submit" ${busy}>Change password</button></div></form>`;
+  if (v === 'newcode') return `<p class="fine" style="margin:0">${ON.me && ON.me.hasRecovery ? 'A new code replaces the one you have now, which then stops working.' : 'Your account has no recovery code yet. Make one now: without it, a forgotten password means a lost account.'}</p>
+    <form class="form" data-form="newcode" novalidate><input type="text" name="username" autocomplete="username" value="${esc(ON.me ? ON.me.username : '')}" hidden><label>Your password<input class="input" name="password" type="password" autocomplete="current-password" required></label>${err}<div class="modal-actions"><button class="btn" type="button" data-acct="close">Cancel</button><span class="sp"></span><button class="btn btn-brass" type="submit" ${busy}>Make a new code</button></div></form>`;
+  return '';
+}
+// Redraws keep what was typed (an error message must not cost someone their username)
+function renderAuth(focus) {
+  const box = $('#authBox'); if (!box) return;
+  // the same form again keeps everything; another form keeps only the username
+  const same = box.dataset.shown === ON.authView; box.dataset.shown = ON.authView;   // not data-view: that marks the view links
+  const typed = [...box.querySelectorAll('input.input')].map(n => [n.name, n.value]).filter(([k, v]) => v && (same || k === 'username'));
+  box.innerHTML = `<div class="auth-head"><h2 id="authTitle">${AUTH_TITLES[ON.authView] || 'Account'}</h2>${ON.authView === 'code' ? '' : '<button class="banner-close" type="button" data-acct="close" aria-label="Close">×</button>'}</div>${authFormHTML()}`;
+  for (const [k, v] of typed) { const n = box.querySelector(`input.input[name="${k}"]`); if (n && !n.value) n.value = v; }
+  if (focus && !coarse()) { const first = [...box.querySelectorAll('input.input')].find(n => !n.value) || box.querySelector('.btn-brass'); if (first) first.focus(); }
+}
+const whenConnected = () => new Promise(res => { if (ON.sock && ON.sock.connected) return res(); const t0 = Date.now(); const t = setInterval(() => { if ((ON.sock && ON.sock.connected) || Date.now() - t0 > 8000) { clearInterval(t); res(); } }, 100); });
+async function runPending() {
+  const p = ON.pending; ON.pending = null; if (!p || !ON.me) return;
+  await whenConnected();
+  if (p === 'seek') { if (S.mode !== 'online') openOnline(); findOpponent(); }
+  else if (p === 'challenge') { if (S.mode !== 'online') openOnline(); createChallenge('r'); }
+  else if (p === 'accept' && ON.incoming) { await loadIncoming(ON.incoming.code); if (ON.incoming && !ON.incoming.error) acceptIncoming(); }
+}
+async function submitAccount(form) {
+  const v = form.dataset.form; const f = (n) => { const x = form.querySelector(`[name="${n}"]`); return x ? (x.type === 'checkbox' ? x.checked : x.value) : ''; };
+  ON.authError = ''; ON.busy = true; renderAuth();
   try {
-    const d = await api(ON.authTab === 'login' ? '/login' : '/register', { method: 'POST', body: { username, password, remember } });
-    ON.me = d.user; ON.authMsg = '';
-    if (window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
-    connectSocket(); loadMyGames();
-    if (ON.incoming) loadIncoming(ON.incoming.code);
-  } catch (e) { ON.authError = e.message; }
-  ON.busy = false; renderOnlinePanel();
+    if (v === 'login' || v === 'register' || v === 'recover') {
+      ON.remember = !!f('remember');
+      const body = { username: f('username').trim(), password: f('password'), remember: ON.remember };
+      if (v === 'recover') body.code = f('code');
+      const d = await api(v === 'login' ? '/login' : v === 'register' ? '/register' : '/recover', { method: 'POST', body });
+      ON.me = d.user; try { localStorage.setItem(KNOWN_KEY, '1'); } catch (e) {}
+      if (window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
+      connectSocket(); loadMyGames(); renderUserSection(); renderAccountBtn();
+      if (ON.incoming && ON.pending !== 'accept') whenConnected().then(() => { if (ON.incoming) loadIncoming(ON.incoming.code); });
+      if (S.mode === 'online') renderAll();
+      if (d.recoveryCode) { ON.newCode = d.recoveryCode; ON.authView = 'code'; ON.busy = false; renderAuth(); return; }
+      ON.busy = false; closeAuth(); toast(v === 'recover' ? 'New password set. You are logged in.' : `Logged in as ${ON.me.username}.`); runPending(); return;
+    }
+    if (v === 'password') { await api('/password', { method: 'POST', body: { current: f('current'), password: f('password') } }); ON.busy = false; closeAuth(); toast('Your password is changed.'); return; }
+    if (v === 'newcode') { const d = await api('/recovery-code', { method: 'POST', body: { password: f('password') } }); ON.me.hasRecovery = true; ON.newCode = d.recoveryCode; ON.authView = 'code'; ON.busy = false; renderAuth(); renderUserSection(); return; }
+  } catch (e) { ON.authError = e instanceof TypeError ? 'No connection. Check your internet and try again.' : e.message; }
+  ON.busy = false; renderAuth();
+}
+// The account button in the menu: "Log in" for visitors, your name (and profile) once logged in
+function renderAccountBtn() {
+  const b = $('#btnAccount'); if (!b) return;
+  b.hidden = !ON.loaded;
+  const name = ON.me ? ON.me.username : 'Log in';
+  b.querySelector('.lbl').textContent = name; b.querySelector('.lbl-s').textContent = name;
+  b.title = ON.me ? 'Your profile' : 'Log in or create an account';
+  b.classList.toggle('in', !!ON.me);
 }
 async function logout() {
   if (onlineActive()) { toast('Finish or resign your game first.'); return; }
@@ -4007,10 +4403,10 @@ async function logout() {
   if (window.WP_SYNC) await window.WP_SYNC.flush();    // send progress not saved yet; this browser then forgets it
   try { await api('/logout', { method: 'POST', body: {} }); } catch (e) {}
   ON.me = null; ON.games = null; ON.game = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null);
-  connectSocket(); openOnline();
+  renderAccountBtn(); renderUserSection(); connectSocket(); openOnline();
 }
 async function deleteAccount(password) {
-  try { await api('/me', { method: 'DELETE', body: { password } }); leaveOnline(true); ON.me = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null); ON.games = null; ON.confirmDelete = false; ON.deleteError = ''; connectSocket(); toast('Your account has been deleted.'); openOnline(); }
+  try { await api('/me', { method: 'DELETE', body: { password } }); leaveOnline(true); ON.me = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null); ON.games = null; ON.confirmDelete = false; ON.deleteError = ''; renderAccountBtn(); renderUserSection(); connectSocket(); toast('Your account has been deleted.'); openOnline(); }
   catch (e) { ON.deleteError = e.message; renderOnlinePanel(); }
 }
 
@@ -4030,10 +4426,10 @@ const mmss = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${M
 // The panel is redrawn often: lobby stats arrive every 3 seconds, the seek timer ticks every second.
 // A redraw must never cost someone what they are typing, so identical HTML leaves the page alone,
 // and a real change carries typed text, focus and cursor position over to the new fields.
-const panelKey = (n) => n.id ? '#' + CSS.escape(n.id) : n.name ? `[name="${n.name}"]` : n.dataset && n.dataset.act ? `[data-act="${n.dataset.act}"]` : n.dataset && n.dataset.tc ? `[data-tc="${n.dataset.tc}"]` : n.dataset && n.dataset.auth ? `[data-auth="${n.dataset.auth}"]` : null;
+const panelKey = (n) => n.id ? '#' + CSS.escape(n.id) : n.name ? `[name="${n.name}"]` : n.dataset && n.dataset.act ? `[data-act="${n.dataset.act}"]` : n.dataset && n.dataset.tc ? `[data-tc="${n.dataset.tc}"]` : null;
 function renderOnlinePanel() {
   const el = $('#onlinePanel'); if (!el || S.mode !== 'online') return;
-  const html = !ON.loaded ? '<p class="fine"><span class="spinner"></span>Connecting…</p>' : ON.game ? gameHTML() : !ON.me ? authHTML() : lobbyHTML();
+  const html = !ON.loaded ? '<p class="fine"><span class="spinner"></span>Connecting…</p>' : ON.game ? gameHTML() : !ON.me ? guestLobbyHTML() : lobbyHTML();
   if (html === ON.panelHtml && el.firstChild) return;
   const typed = [...el.querySelectorAll('input:not([readonly]):not([type=hidden]), textarea')].map(n => [panelKey(n), n.value]).filter(([k, v]) => k && v);
   const a = document.activeElement; const focusKey = a && a !== el && el.contains(a) ? panelKey(a) : null;
@@ -4052,22 +4448,18 @@ async function watchGame(id) {
   if (ON.game && ON.game.id !== id) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
   await openGame(id);
 }
-function authHTML() {
-  const reg = ON.authTab === 'register';
-  const inv = ON.incoming && !ON.incoming.error ? `<div class="offer"><b>${esc(ON.incoming.from)} challenges you to a ${esc(ON.incoming.tc)} game.</b><span class="fine">Log in or create an account to accept.</span></div>` : '';
+// Visitors see the lobby too: the clocks, who is waiting and the live games. Find an opponent asks them to
+// log in or create an account first, and then carries on.
+function guestLobbyHTML() {
+  let inv = '';
+  if (ON.incoming) inv = ON.incoming.error ? `<div class="offer"><span>${esc(ON.incoming.error)}</span><button class="btn btn-small" data-act="dismiss-incoming">OK</button></div>`
+    : `<div class="offer"><b>${esc(ON.incoming.from)} challenges you to a ${esc(ON.incoming.tc)} game.</b><span class="fine">Log in or create an account to accept. It takes a few seconds and needs no email address.</span><div class="actions"><button class="btn btn-brass" data-act="accept-incoming">Accept</button><button class="btn" data-act="dismiss-incoming">Decline</button></div></div>`;
   return `<div><h2>Play online</h2><p class="card-sub" style="margin:4px 0 0">Get paired with someone at your level, or send a friend a link.</p></div>${inv}
-    <div class="seg" role="group" aria-label="Account" style="grid-template-columns:1fr 1fr">
-      <button class="seg-btn" data-auth="login" aria-pressed="${!reg}">Log in</button>
-      <button class="seg-btn" data-auth="register" aria-pressed="${reg}">Create account</button>
-    </div>
-    <form class="form" id="authForm" novalidate>
-      <label>Username<input class="input" name="username" id="authUser" autocomplete="username" maxlength="20" required></label>
-      <label>Password<input class="input" name="password" id="authPass" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" minlength="${reg ? 8 : 1}" required></label>
-      <div><label class="check"><input type="checkbox" name="remember" id="authRemember" ${ON.remember ? 'checked' : ''}> Remember me</label><p class="fine" style="margin:4px 0 0 28px">Stay logged in on this device, also after closing the browser. Leave it off on a shared computer.</p></div>
-      ${ON.authError ? `<p class="err" role="alert">${esc(ON.authError)}</p>` : ''}
-      <button class="btn btn-brass" type="submit" ${ON.busy ? 'disabled' : ''}>${reg ? 'Create account' : 'Log in'}</button>
-    </form>
-    <p class="fine">${reg ? 'Usernames are public. Woodpusher stores only your username, a hashed password, your ratings and your games. No email address needed. ' : ''}<a href="/privacy.html" target="_blank" rel="noopener">Privacy statement</a></p>${liveHTML()}`;
+    ${!ON.connected ? '<p class="err">Not connected to the server. Reconnecting…</p>' : ''}
+    <div><span class="field-label">Clock</span>${tcGridHTML()}</div>
+    <div class="actions"><button class="btn btn-brass" data-act="seek">Find an opponent</button><button class="btn" data-act="challenge">Challenge a friend</button></div>
+    <p class="fine" style="margin:0">Online games need an account: a username and a password, no email address. <button class="back-link" data-act="login" style="display:inline">Log in</button> or <button class="back-link" data-act="register" style="display:inline">create an account</button>.</p>
+    ${statsLine()}${liveHTML()}`;
 }
 function lobbyHTML() {
   const me = ON.me; const r = me.ratings || {};
@@ -4174,7 +4566,7 @@ function newOpponent() { const tc = ON.game ? ON.game.tc : ON.tc; ON.tc = tc; op
 function onlineNote() {
   const g = ON.game; if (!g) return ON.seeking ? 'Looking for an opponent…' : '';
   if (g.status !== 'active') return '';
-  if (S.view !== liveIndex()) return 'Looking back. Press → or End to return to the game.';
+  if (S.view !== liveIndex()) return coarse() ? 'Looking back. Tap ▶| to return to the game.' : 'Looking back. Press → or End to return to the game.';
   if (!g.you) return `${S.chess.turn() === 'w' ? S.line.names.w : S.line.names.b} to move.`;
   return S.chess.turn() === g.you ? 'Your move.' : `Waiting for ${oppName()}…`;
 }
@@ -4198,20 +4590,20 @@ function wireOnline() {
   const panel = $('#onlinePanel');
   panel.addEventListener('submit', (e) => {
     e.preventDefault();
-    if (e.target.id === 'authForm') submitAuth(e.target);
     if (e.target.id === 'delForm') deleteAccount(e.target.querySelector('[name=password]').value);
   });
-  // Keep the tick when the panel redraws (an error message, switching between log in and create account)
-  panel.addEventListener('change', (e) => { if (e.target.id === 'authRemember') ON.remember = e.target.checked; });
   panel.addEventListener('click', async (e) => {
     const b = e.target.closest('button'); if (!b || b.disabled) return;
-    if (b.dataset.auth) { ON.authTab = b.dataset.auth; ON.authError = ''; renderOnlinePanel(); return; }
     if (b.dataset.tc) { ON.tc = b.dataset.tc; renderAll(); return; }
     if (b.dataset.review) { reviewOnlineGame(b.dataset.review); return; }
     if (b.dataset.switch) { ON.tc = b.dataset.switch; findOpponent(); return; }
     if (b.dataset.watch) { watchGame(b.dataset.watch); return; }
     if (b.dataset.say) { if (ON.game) { const r = await emitOn('game:say', { id: ON.game.id, key: b.dataset.say }); if (r.error) toast(r.error); } return; }
     const g = ON.game; const act = b.dataset.act;
+    // a visitor: log in or create an account first, then carry on
+    if (!ON.me && ['seek', 'challenge', 'accept-incoming', 'login', 'register'].includes(act)) {
+      openAuth(act === 'login' ? 'login' : act === 'register' ? 'register' : null, { seek: 'seek', challenge: 'challenge', 'accept-incoming': 'accept' }[act]); return;
+    }
     const send = async (ev, d) => { const r = await emitOn(ev, d); if (r.error) toast(r.error); return r; };
     switch (act) {
       case 'seek': findOpponent(); break;
@@ -4251,6 +4643,7 @@ function wireOnline() {
 async function bootOnline() {
   if (typeof io === 'undefined') return;
   wireOnline();
+  $('#btnAccount').addEventListener('click', () => { if (ON.me) { if (window.WP_PLAYERS) window.WP_PLAYERS.profile(ON.me.username); } else openAuth(); });
   await loadMe();
   connectSocket();
   const path = location.pathname;
@@ -4265,17 +4658,18 @@ window.WP_ONLINE = {
   leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: onModeChange,
   inGame: () => !!ON.game,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
-  login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
+  login: () => openAuth(),
+  account: (view) => { if (ON.me) openAuth(view); },
   logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },
   plate: (c) => c === S.orientation
-    ? { n: ON.me ? ON.me.username : 'You', s: ON.me ? `Rating ${myRating(ON.tc)}` : 'Log in to play' }
-    : { n: ON.seeking ? 'Searching…' : 'Opponent', s: ON.seeking ? `${ON.seeking.tc} · rated` : 'Not paired yet' },
+    ? { n: ON.me ? ON.me.username : 'You', s: ON.me ? `Rating ${myRating(ON.tc)}` : '' }
+    : { n: ON.seeking ? 'Searching…' : 'Opponent', s: ON.seeking ? `${ON.seeking.tc} · rated` : ON.me ? 'Not paired yet' : '' },
 };
 
 /* =====================================================================
-   Review a game: find your recent games on Lichess or Chess.com by
-   username (the Woodpusher server fetches them, see server/import.js),
-   or paste a PGN.
+   The Review a game page: find your recent games on Lichess or Chess.com
+   by username (the Woodpusher server fetches them, see server/import.js),
+   or paste a PGN. The analysis board and the editor are in app.html.
    ===================================================================== */
 const IMP_KEY = 'woodpusher.import.v1';
 const IMP_SITES = { lichess: 'Lichess', chesscom: 'Chess.com' };
@@ -4312,7 +4706,6 @@ function impRender() {
   $('#impTabs').hidden = !can;
   document.querySelectorAll('#impTabs [data-imptab]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.imptab === (user ? 'user' : 'paste'))));
   $('#impUserPane').hidden = !user; $('#impPastePane').hidden = user;
-  $('#pgnSample').hidden = user; $('#pgnGo').hidden = user; $('#pgnCancel').textContent = user ? 'Close' : 'Cancel';
   if (!can) return;
   document.querySelectorAll('#impSite .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.site === IMP.site)));
   const go = $('#impGo'); go.disabled = IMP.busy; go.textContent = IMP.busy ? 'Finding…' : 'Find games';
@@ -4344,7 +4737,7 @@ async function impSearch() {
 function impReview(i) {
   const g = IMP.data && IMP.data.games[i]; if (!g) return;
   if (S.mode === 'play') { IMP.error = 'Finish or abandon your current game first.'; impRender(); return; }
-  try { loadPGNForReview(g.pgn, { you: g.you, reason: g.reason }); $('#pgnModal').hidden = true; }
+  try { loadPGNForReview(g.pgn, { you: g.you, reason: g.reason }); }
   catch (e) { IMP.error = e.message; impRender(); }
 }
 function impOpen(tab) {
@@ -4355,13 +4748,11 @@ function impOpen(tab) {
     const inp = $('#impName'); if (!inp.value) inp.value = IMP.name;
     // A remembered username shows its games straight away
     if (inp.value && !IMP.busy && !(IMP.data && IMP.data.site === IMP.site && IMP.data.username.toLowerCase() === inp.value.trim().toLowerCase())) impSearch();
-    if (!inp.value) inp.focus();
-  } else $('#pgnInput').focus();
+    if (!inp.value && !coarse()) inp.focus();      // on a phone the keyboard waits for a tap
+  } else if (!coarse()) $('#pgnInput').focus();
 }
 function impBoot() {
   if (!impAvailable() || IMP.wired) return; IMP.wired = true;
-  $('#btnFindGames').hidden = false;
-  $('#ctaSub').textContent = 'Pick one of your games on Lichess or Chess.com by username, or paste a PGN, and get every move graded, from best to blunder.';
   $('#impTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-imptab]'); if (!b) return; IMP.tab = b.dataset.imptab; saveImp(); impOpen(); });
   $('#impSite').addEventListener('click', (e) => { const b = e.target.closest('[data-site]'); if (!b || b.dataset.site === IMP.site) return; IMP.site = b.dataset.site; IMP.error = ''; IMP.token++; IMP.busy = false; saveImp(); impRender(); $('#impName').focus(); });
   $('#impForm').addEventListener('submit', (e) => { e.preventDefault(); impSearch(); });

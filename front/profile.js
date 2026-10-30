@@ -124,7 +124,7 @@ function renderUserSection() {
       <p class="fine">A <b>?</b> means the rating is still a guess. It settles after a handful of rated games.</p></div>`;
   }
   let action = '';
-  if (me) action = `<button class="btn btn-small" data-open-player="${esc(me.username)}">Your profile</button><button class="btn btn-small" data-open-board>Leaderboard</button>${me.admin ? `<button class="btn btn-small" data-open-admin>Reports and fair play${me.openReports ? ` (${me.openReports} open)` : ''}</button>` : ''}<button class="btn btn-small" data-user="logout">Log out</button>`;
+  if (me) action = `<button class="btn btn-small" data-open-player="${esc(me.username)}">Your profile</button><button class="btn btn-small" data-open-board>Leaderboard</button>${me.admin ? `<button class="btn btn-small" data-open-admin>Reports and fair play${me.openReports ? ` (${me.openReports} open)` : ''}</button>` : ''}<button class="btn btn-small" data-user="password">Change password</button><button class="btn btn-small" data-user="newcode">${me.hasRecovery ? 'New recovery code' : 'Make a recovery code'}</button><button class="btn btn-small" data-user="logout">Log out</button>`;
   else if (online && !checking) action = `<button class="btn btn-brass btn-small" data-user="login">Log in or create an account</button>`;
   el.innerHTML = `
     <div class="you"><span class="you-ic" aria-hidden="true">${pieceSVG('wK')}</span><span class="you-text"><span class="you-name">${esc(name)}</span>${sub ? `<span class="you-sub">${esc(sub)}</span>` : ''}</span></div>
@@ -139,5 +139,6 @@ function wireUserSection() {
     const b = e.target.closest('[data-user]'); if (!b || !window.WP_ONLINE) return;
     if (b.dataset.user === 'login') { $('#settingsModal').hidden = true; window.WP_ONLINE.login(); }
     if (b.dataset.user === 'logout') { if (window.WP_ONLINE.logout()) $('#settingsModal').hidden = true; }
+    if (b.dataset.user === 'password' || b.dataset.user === 'newcode') window.WP_ONLINE.account(b.dataset.user);
   });
 }

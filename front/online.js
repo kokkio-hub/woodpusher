@@ -4,7 +4,7 @@
 const ONLINE_TCS = TCS.filter(t => t.base > 0);
 const ON = {
   me: null, loaded: false, sock: null, connected: false, stats: null, tc: '3+2',
-  seeking: null, challenge: null, incoming: null, game: null, games: null, authTab: 'login', authError: '', authMsg: '', busy: false,
+  seeking: null, challenge: null, incoming: null, game: null, games: null, authView: 'login', authError: '', busy: false, pending: null, newCode: null,
   confirmDelete: false, deleteError: '', offlineTick: null, remember: false,
 };
 async function api(path, opts = {}) {
@@ -80,7 +80,7 @@ async function loadMe() {
   // A failed request (offline) keeps whoever was logged in; only the server's answer changes it
   let known = false;
   try { const d = await api('/me'); ON.me = d.user; known = true; } catch (e) { ON.me = ON.me || null; }
-  ON.loaded = true; renderUserSection();
+  ON.loaded = true; renderUserSection(); renderAccountBtn();
   if (known && window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
   if (window.WP_PLAYERS) window.WP_PLAYERS.refresh();
 }
@@ -191,7 +191,10 @@ function loadGameState(st) {
   S.game = { playerColor: you || 'w', you, level: null, tc: st.tc, online: true,
     clock: { w: st.clocks.w, b: st.clocks.b, running: st.status === 'active' && st.clockRunning ? st.turn : null, last: performance.now() } };
   S.orientation = you || 'w'; S.view = liveIndex(); S.bannerOpen = st.status !== 'active' && !!st.result;
+  const fresh = !ON.shownGame || ON.shownGame !== st.id; ON.shownGame = st.id;
   setMode('online'); renderCoords(); drawBoardCanvas(); renderPieces(L.fens[S.view], false); renderAll();
+  // a game that just appeared brings the board into view (on a phone you may have scrolled down to the buttons)
+  if (fresh && st.status === 'active') { const tl = $('.table-left').getBoundingClientRect(); if (tl.top < 0) $('.table-left').scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }
   if (location.pathname !== '/game/' + st.id) history.replaceState(null, '', '/game/' + st.id);
   if (!ON.offlineTick) ON.offlineTick = setInterval(() => { if (S.mode === 'online' && ON.game && ON.game.status === 'active') renderOnlinePanel(); }, 1000);
 }
@@ -280,18 +283,109 @@ async function reviewOnlineGame(id, persp) {
 }
 
 /* ---------------- account ---------------- */
-async function submitAuth(form) {
-  const username = form.querySelector('[name=username]').value.trim(); const password = form.querySelector('[name=password]').value;
-  const remember = form.querySelector('[name=remember]').checked; ON.remember = remember;
-  ON.authError = ''; ON.busy = true; renderOnlinePanel();
+/* ---------------- the account dialog ----------------
+   One dialog for everything about an account: log in, create one, a forgotten password (with the recovery
+   code), changing the password and making a new recovery code. Opened from the menu, from Play online when a
+   visitor presses Find an opponent, and from Settings. ON.pending is what to do once logged in. */
+const KNOWN_KEY = 'woodpusher.known';
+const knownHere = () => { try { return localStorage.getItem(KNOWN_KEY) === '1'; } catch (e) { return false; } };
+function authBox() {
+  let m = $('#authModal');
+  if (!m) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="modal-back" id="authModal" hidden><div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle" id="authBox"></div></div>');
+    m = $('#authModal');
+    // the recovery code is shown once, so that view only closes with "I've saved it"
+    m.addEventListener('click', (e) => { if (e.target === m && ON.authView !== 'code') closeAuth(); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !m.hidden && ON.authView === 'code') e.stopImmediatePropagation(); }, true);
+    m.addEventListener('submit', (e) => { e.preventDefault(); submitAccount(e.target); });
+    m.addEventListener('change', (e) => { if (e.target.name === 'remember') ON.remember = e.target.checked; });
+    m.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-view], [data-acct]'); if (!b) return;
+      if (b.dataset.view) { ON.authView = b.dataset.view; ON.authError = ''; renderAuth(true); return; }
+      if (b.dataset.acct === 'close') closeAuth();
+      if (b.dataset.acct === 'saved') { ON.newCode = null; closeAuth(); runPending(); }
+      if (b.dataset.acct === 'copy-code') { try { await navigator.clipboard.writeText(ON.newCode); toast('Recovery code copied.'); } catch (err) { const t = $('#codeText'); if (t) { const r = document.createRange(); r.selectNodeContents(t); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } } }
+    });
+  }
+  return m;
+}
+function openAuth(view, pending) {
+  ON.authView = view || (knownHere() ? 'login' : 'register'); ON.authError = ''; ON.pending = pending || null;
+  document.querySelectorAll('.modal-back').forEach(x => { if (x.id !== 'authModal') x.hidden = true; });
+  const m = authBox(); m.hidden = false; renderAuth(true);
+}
+function closeAuth() { const m = $('#authModal'); if (m) m.hidden = true; ON.authError = ''; }
+const AUTH_TITLES = { login: 'Log in', register: 'Create an account', recover: 'Forgot your password?', code: 'Save your recovery code', password: 'Change your password', newcode: 'A new recovery code' };
+function authFormHTML() {
+  const v = ON.authView; const busy = ON.busy ? 'disabled' : '';
+  const user = '<label>Username<input class="input" name="username" autocomplete="username" maxlength="20" autocapitalize="off" spellcheck="false" required></label>';
+  const remember = `<div><label class="check"><input type="checkbox" name="remember" ${ON.remember ? 'checked' : ''}> Remember me</label><p class="fine" style="margin:4px 0 0 28px">Stay logged in on this device, also after closing the browser. Leave it off on a shared computer.</p></div>`;
+  const err = ON.authError ? `<p class="err" role="alert">${esc(ON.authError)}</p>` : '';
+  const why = ON.pending === 'seek' || ON.pending === 'challenge' ? '<p class="fine" style="margin:0">Online games need an account. It takes a few seconds: a username and a password, no email address.</p>'
+    : ON.pending === 'accept' ? '<p class="fine" style="margin:0">Log in or create an account to accept the challenge.</p>' : '';
+  if (v === 'code') return `<p style="margin:0">Woodpusher has no email address for you, so if you ever forget your password, this code is the only way back into your account. Keep it somewhere safe, such as a password manager. It is shown only now.</p>
+    <p class="code-box" id="codeText">${esc(ON.newCode || '')}</p>
+    <div class="modal-actions"><button class="btn" type="button" data-acct="copy-code">Copy</button><span class="sp"></span><button class="btn btn-brass" type="button" data-acct="saved">I’ve saved it</button></div>`;
+  if (v === 'login') return `${why}<form class="form" data-form="login" novalidate>${user}<label>Password<input class="input" name="password" type="password" autocomplete="current-password" required></label>${remember}${err}<button class="btn btn-brass" type="submit" ${busy}>Log in</button></form>
+    <div class="auth-links"><button class="back-link" type="button" data-view="recover">Forgot your password?</button><span>New here? <button class="back-link" type="button" data-view="register">Create an account</button></span></div>`;
+  if (v === 'register') return `${why}<form class="form" data-form="register" novalidate>${user}<label>Password<input class="input" name="password" type="password" autocomplete="new-password" minlength="8" required></label><p class="fine" style="margin:-4px 0 0">At least 8 characters. Usernames are public. Woodpusher stores only your username, a hashed password, your ratings and your games: no email address. <a href="/privacy.html" target="_blank" rel="noopener">Privacy statement</a></p>${remember}${err}<button class="btn btn-brass" type="submit" ${busy}>Create account</button></form>
+    <div class="auth-links"><span>Already have an account? <button class="back-link" type="button" data-view="login">Log in</button></span></div>`;
+  if (v === 'recover') return `<p class="fine" style="margin:0">Use the recovery code you saved when you created your account (or made later in Settings). It sets a new password and logs you in. Without the code there is no way back in, because Woodpusher has no email address for you.</p>
+    <form class="form" data-form="recover" novalidate>${user}<label>Recovery code<input class="input code-input" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCDE-FGHJK-LMNPQ-RSTUV" required></label><label>New password<input class="input" name="password" type="password" autocomplete="new-password" minlength="8" required></label>${remember}${err}<button class="btn btn-brass" type="submit" ${busy}>Set the new password</button></form>
+    <div class="auth-links"><button class="back-link" type="button" data-view="login">← Back to log in</button></div>`;
+  if (v === 'password') return `<form class="form" data-form="password" novalidate><input type="text" name="username" autocomplete="username" value="${esc(ON.me ? ON.me.username : '')}" hidden><label>Current password<input class="input" name="current" type="password" autocomplete="current-password" required></label><label>New password<input class="input" name="password" type="password" autocomplete="new-password" minlength="8" required></label><p class="fine" style="margin:-4px 0 0">At least 8 characters. Other devices where you are logged in are logged out.</p>${err}<div class="modal-actions"><button class="btn" type="button" data-acct="close">Cancel</button><span class="sp"></span><button class="btn btn-brass" type="submit" ${busy}>Change password</button></div></form>`;
+  if (v === 'newcode') return `<p class="fine" style="margin:0">${ON.me && ON.me.hasRecovery ? 'A new code replaces the one you have now, which then stops working.' : 'Your account has no recovery code yet. Make one now: without it, a forgotten password means a lost account.'}</p>
+    <form class="form" data-form="newcode" novalidate><input type="text" name="username" autocomplete="username" value="${esc(ON.me ? ON.me.username : '')}" hidden><label>Your password<input class="input" name="password" type="password" autocomplete="current-password" required></label>${err}<div class="modal-actions"><button class="btn" type="button" data-acct="close">Cancel</button><span class="sp"></span><button class="btn btn-brass" type="submit" ${busy}>Make a new code</button></div></form>`;
+  return '';
+}
+// Redraws keep what was typed (an error message must not cost someone their username)
+function renderAuth(focus) {
+  const box = $('#authBox'); if (!box) return;
+  // the same form again keeps everything; another form keeps only the username
+  const same = box.dataset.shown === ON.authView; box.dataset.shown = ON.authView;   // not data-view: that marks the view links
+  const typed = [...box.querySelectorAll('input.input')].map(n => [n.name, n.value]).filter(([k, v]) => v && (same || k === 'username'));
+  box.innerHTML = `<div class="auth-head"><h2 id="authTitle">${AUTH_TITLES[ON.authView] || 'Account'}</h2>${ON.authView === 'code' ? '' : '<button class="banner-close" type="button" data-acct="close" aria-label="Close">×</button>'}</div>${authFormHTML()}`;
+  for (const [k, v] of typed) { const n = box.querySelector(`input.input[name="${k}"]`); if (n && !n.value) n.value = v; }
+  if (focus && !coarse()) { const first = [...box.querySelectorAll('input.input')].find(n => !n.value) || box.querySelector('.btn-brass'); if (first) first.focus(); }
+}
+const whenConnected = () => new Promise(res => { if (ON.sock && ON.sock.connected) return res(); const t0 = Date.now(); const t = setInterval(() => { if ((ON.sock && ON.sock.connected) || Date.now() - t0 > 8000) { clearInterval(t); res(); } }, 100); });
+async function runPending() {
+  const p = ON.pending; ON.pending = null; if (!p || !ON.me) return;
+  await whenConnected();
+  if (p === 'seek') { if (S.mode !== 'online') openOnline(); findOpponent(); }
+  else if (p === 'challenge') { if (S.mode !== 'online') openOnline(); createChallenge('r'); }
+  else if (p === 'accept' && ON.incoming) { await loadIncoming(ON.incoming.code); if (ON.incoming && !ON.incoming.error) acceptIncoming(); }
+}
+async function submitAccount(form) {
+  const v = form.dataset.form; const f = (n) => { const x = form.querySelector(`[name="${n}"]`); return x ? (x.type === 'checkbox' ? x.checked : x.value) : ''; };
+  ON.authError = ''; ON.busy = true; renderAuth();
   try {
-    const d = await api(ON.authTab === 'login' ? '/login' : '/register', { method: 'POST', body: { username, password, remember } });
-    ON.me = d.user; ON.authMsg = '';
-    if (window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
-    connectSocket(); loadMyGames();
-    if (ON.incoming) loadIncoming(ON.incoming.code);
-  } catch (e) { ON.authError = e.message; }
-  ON.busy = false; renderOnlinePanel();
+    if (v === 'login' || v === 'register' || v === 'recover') {
+      ON.remember = !!f('remember');
+      const body = { username: f('username').trim(), password: f('password'), remember: ON.remember };
+      if (v === 'recover') body.code = f('code');
+      const d = await api(v === 'login' ? '/login' : v === 'register' ? '/register' : '/recover', { method: 'POST', body });
+      ON.me = d.user; try { localStorage.setItem(KNOWN_KEY, '1'); } catch (e) {}
+      if (window.WP_SYNC) window.WP_SYNC.onUser(ON.me);
+      connectSocket(); loadMyGames(); renderUserSection(); renderAccountBtn();
+      if (ON.incoming && ON.pending !== 'accept') whenConnected().then(() => { if (ON.incoming) loadIncoming(ON.incoming.code); });
+      if (S.mode === 'online') renderAll();
+      if (d.recoveryCode) { ON.newCode = d.recoveryCode; ON.authView = 'code'; ON.busy = false; renderAuth(); return; }
+      ON.busy = false; closeAuth(); toast(v === 'recover' ? 'New password set. You are logged in.' : `Logged in as ${ON.me.username}.`); runPending(); return;
+    }
+    if (v === 'password') { await api('/password', { method: 'POST', body: { current: f('current'), password: f('password') } }); ON.busy = false; closeAuth(); toast('Your password is changed.'); return; }
+    if (v === 'newcode') { const d = await api('/recovery-code', { method: 'POST', body: { password: f('password') } }); ON.me.hasRecovery = true; ON.newCode = d.recoveryCode; ON.authView = 'code'; ON.busy = false; renderAuth(); renderUserSection(); return; }
+  } catch (e) { ON.authError = e instanceof TypeError ? 'No connection. Check your internet and try again.' : e.message; }
+  ON.busy = false; renderAuth();
+}
+// The account button in the menu: "Log in" for visitors, your name (and profile) once logged in
+function renderAccountBtn() {
+  const b = $('#btnAccount'); if (!b) return;
+  b.hidden = !ON.loaded;
+  const name = ON.me ? ON.me.username : 'Log in';
+  b.querySelector('.lbl').textContent = name; b.querySelector('.lbl-s').textContent = name;
+  b.title = ON.me ? 'Your profile' : 'Log in or create an account';
+  b.classList.toggle('in', !!ON.me);
 }
 async function logout() {
   if (onlineActive()) { toast('Finish or resign your game first.'); return; }
@@ -299,10 +393,10 @@ async function logout() {
   if (window.WP_SYNC) await window.WP_SYNC.flush();    // send progress not saved yet; this browser then forgets it
   try { await api('/logout', { method: 'POST', body: {} }); } catch (e) {}
   ON.me = null; ON.games = null; ON.game = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null);
-  connectSocket(); openOnline();
+  renderAccountBtn(); renderUserSection(); connectSocket(); openOnline();
 }
 async function deleteAccount(password) {
-  try { await api('/me', { method: 'DELETE', body: { password } }); leaveOnline(true); ON.me = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null); ON.games = null; ON.confirmDelete = false; ON.deleteError = ''; connectSocket(); toast('Your account has been deleted.'); openOnline(); }
+  try { await api('/me', { method: 'DELETE', body: { password } }); leaveOnline(true); ON.me = null; if (window.WP_SYNC) window.WP_SYNC.onUser(null); ON.games = null; ON.confirmDelete = false; ON.deleteError = ''; renderAccountBtn(); renderUserSection(); connectSocket(); toast('Your account has been deleted.'); openOnline(); }
   catch (e) { ON.deleteError = e.message; renderOnlinePanel(); }
 }
 
@@ -322,10 +416,10 @@ const mmss = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${M
 // The panel is redrawn often: lobby stats arrive every 3 seconds, the seek timer ticks every second.
 // A redraw must never cost someone what they are typing, so identical HTML leaves the page alone,
 // and a real change carries typed text, focus and cursor position over to the new fields.
-const panelKey = (n) => n.id ? '#' + CSS.escape(n.id) : n.name ? `[name="${n.name}"]` : n.dataset && n.dataset.act ? `[data-act="${n.dataset.act}"]` : n.dataset && n.dataset.tc ? `[data-tc="${n.dataset.tc}"]` : n.dataset && n.dataset.auth ? `[data-auth="${n.dataset.auth}"]` : null;
+const panelKey = (n) => n.id ? '#' + CSS.escape(n.id) : n.name ? `[name="${n.name}"]` : n.dataset && n.dataset.act ? `[data-act="${n.dataset.act}"]` : n.dataset && n.dataset.tc ? `[data-tc="${n.dataset.tc}"]` : null;
 function renderOnlinePanel() {
   const el = $('#onlinePanel'); if (!el || S.mode !== 'online') return;
-  const html = !ON.loaded ? '<p class="fine"><span class="spinner"></span>Connecting…</p>' : ON.game ? gameHTML() : !ON.me ? authHTML() : lobbyHTML();
+  const html = !ON.loaded ? '<p class="fine"><span class="spinner"></span>Connecting…</p>' : ON.game ? gameHTML() : !ON.me ? guestLobbyHTML() : lobbyHTML();
   if (html === ON.panelHtml && el.firstChild) return;
   const typed = [...el.querySelectorAll('input:not([readonly]):not([type=hidden]), textarea')].map(n => [panelKey(n), n.value]).filter(([k, v]) => k && v);
   const a = document.activeElement; const focusKey = a && a !== el && el.contains(a) ? panelKey(a) : null;
@@ -344,22 +438,18 @@ async function watchGame(id) {
   if (ON.game && ON.game.id !== id) { emitOn('game:leave', { id: ON.game.id }); ON.game = null; }
   await openGame(id);
 }
-function authHTML() {
-  const reg = ON.authTab === 'register';
-  const inv = ON.incoming && !ON.incoming.error ? `<div class="offer"><b>${esc(ON.incoming.from)} challenges you to a ${esc(ON.incoming.tc)} game.</b><span class="fine">Log in or create an account to accept.</span></div>` : '';
+// Visitors see the lobby too: the clocks, who is waiting and the live games. Find an opponent asks them to
+// log in or create an account first, and then carries on.
+function guestLobbyHTML() {
+  let inv = '';
+  if (ON.incoming) inv = ON.incoming.error ? `<div class="offer"><span>${esc(ON.incoming.error)}</span><button class="btn btn-small" data-act="dismiss-incoming">OK</button></div>`
+    : `<div class="offer"><b>${esc(ON.incoming.from)} challenges you to a ${esc(ON.incoming.tc)} game.</b><span class="fine">Log in or create an account to accept. It takes a few seconds and needs no email address.</span><div class="actions"><button class="btn btn-brass" data-act="accept-incoming">Accept</button><button class="btn" data-act="dismiss-incoming">Decline</button></div></div>`;
   return `<div><h2>Play online</h2><p class="card-sub" style="margin:4px 0 0">Get paired with someone at your level, or send a friend a link.</p></div>${inv}
-    <div class="seg" role="group" aria-label="Account" style="grid-template-columns:1fr 1fr">
-      <button class="seg-btn" data-auth="login" aria-pressed="${!reg}">Log in</button>
-      <button class="seg-btn" data-auth="register" aria-pressed="${reg}">Create account</button>
-    </div>
-    <form class="form" id="authForm" novalidate>
-      <label>Username<input class="input" name="username" id="authUser" autocomplete="username" maxlength="20" required></label>
-      <label>Password<input class="input" name="password" id="authPass" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" minlength="${reg ? 8 : 1}" required></label>
-      <div><label class="check"><input type="checkbox" name="remember" id="authRemember" ${ON.remember ? 'checked' : ''}> Remember me</label><p class="fine" style="margin:4px 0 0 28px">Stay logged in on this device, also after closing the browser. Leave it off on a shared computer.</p></div>
-      ${ON.authError ? `<p class="err" role="alert">${esc(ON.authError)}</p>` : ''}
-      <button class="btn btn-brass" type="submit" ${ON.busy ? 'disabled' : ''}>${reg ? 'Create account' : 'Log in'}</button>
-    </form>
-    <p class="fine">${reg ? 'Usernames are public. Woodpusher stores only your username, a hashed password, your ratings and your games. No email address needed. ' : ''}<a href="/privacy.html" target="_blank" rel="noopener">Privacy statement</a></p>${liveHTML()}`;
+    ${!ON.connected ? '<p class="err">Not connected to the server. Reconnecting…</p>' : ''}
+    <div><span class="field-label">Clock</span>${tcGridHTML()}</div>
+    <div class="actions"><button class="btn btn-brass" data-act="seek">Find an opponent</button><button class="btn" data-act="challenge">Challenge a friend</button></div>
+    <p class="fine" style="margin:0">Online games need an account: a username and a password, no email address. <button class="back-link" data-act="login" style="display:inline">Log in</button> or <button class="back-link" data-act="register" style="display:inline">create an account</button>.</p>
+    ${statsLine()}${liveHTML()}`;
 }
 function lobbyHTML() {
   const me = ON.me; const r = me.ratings || {};
@@ -466,7 +556,7 @@ function newOpponent() { const tc = ON.game ? ON.game.tc : ON.tc; ON.tc = tc; op
 function onlineNote() {
   const g = ON.game; if (!g) return ON.seeking ? 'Looking for an opponent…' : '';
   if (g.status !== 'active') return '';
-  if (S.view !== liveIndex()) return 'Looking back. Press → or End to return to the game.';
+  if (S.view !== liveIndex()) return coarse() ? 'Looking back. Tap ▶| to return to the game.' : 'Looking back. Press → or End to return to the game.';
   if (!g.you) return `${S.chess.turn() === 'w' ? S.line.names.w : S.line.names.b} to move.`;
   return S.chess.turn() === g.you ? 'Your move.' : `Waiting for ${oppName()}…`;
 }
@@ -490,20 +580,20 @@ function wireOnline() {
   const panel = $('#onlinePanel');
   panel.addEventListener('submit', (e) => {
     e.preventDefault();
-    if (e.target.id === 'authForm') submitAuth(e.target);
     if (e.target.id === 'delForm') deleteAccount(e.target.querySelector('[name=password]').value);
   });
-  // Keep the tick when the panel redraws (an error message, switching between log in and create account)
-  panel.addEventListener('change', (e) => { if (e.target.id === 'authRemember') ON.remember = e.target.checked; });
   panel.addEventListener('click', async (e) => {
     const b = e.target.closest('button'); if (!b || b.disabled) return;
-    if (b.dataset.auth) { ON.authTab = b.dataset.auth; ON.authError = ''; renderOnlinePanel(); return; }
     if (b.dataset.tc) { ON.tc = b.dataset.tc; renderAll(); return; }
     if (b.dataset.review) { reviewOnlineGame(b.dataset.review); return; }
     if (b.dataset.switch) { ON.tc = b.dataset.switch; findOpponent(); return; }
     if (b.dataset.watch) { watchGame(b.dataset.watch); return; }
     if (b.dataset.say) { if (ON.game) { const r = await emitOn('game:say', { id: ON.game.id, key: b.dataset.say }); if (r.error) toast(r.error); } return; }
     const g = ON.game; const act = b.dataset.act;
+    // a visitor: log in or create an account first, then carry on
+    if (!ON.me && ['seek', 'challenge', 'accept-incoming', 'login', 'register'].includes(act)) {
+      openAuth(act === 'login' ? 'login' : act === 'register' ? 'register' : null, { seek: 'seek', challenge: 'challenge', 'accept-incoming': 'accept' }[act]); return;
+    }
     const send = async (ev, d) => { const r = await emitOn(ev, d); if (r.error) toast(r.error); return r; };
     switch (act) {
       case 'seek': findOpponent(); break;
@@ -543,6 +633,7 @@ function wireOnline() {
 async function bootOnline() {
   if (typeof io === 'undefined') return;
   wireOnline();
+  $('#btnAccount').addEventListener('click', () => { if (ON.me) { if (window.WP_PLAYERS) window.WP_PLAYERS.profile(ON.me.username); } else openAuth(); });
   await loadMe();
   connectSocket();
   const path = location.pathname;
@@ -557,9 +648,10 @@ window.WP_ONLINE = {
   leave: leaveOnline, boot: bootOnline, tc: () => ON.tc, active: () => onlineActive(), qbar: onModeChange,
   inGame: () => !!ON.game,
   available: () => typeof io !== 'undefined', loaded: () => ON.loaded, me: () => ON.me,
-  login: () => { ON.authTab = 'login'; ON.authError = ''; $('#btnOnline').click(); },
+  login: () => openAuth(),
+  account: (view) => { if (ON.me) openAuth(view); },
   logout: () => { if (onlineActive()) { toast('Finish or resign your game first.'); return false; } logout(); return true; },
   plate: (c) => c === S.orientation
-    ? { n: ON.me ? ON.me.username : 'You', s: ON.me ? `Rating ${myRating(ON.tc)}` : 'Log in to play' }
-    : { n: ON.seeking ? 'Searching…' : 'Opponent', s: ON.seeking ? `${ON.seeking.tc} · rated` : 'Not paired yet' },
+    ? { n: ON.me ? ON.me.username : 'You', s: ON.me ? `Rating ${myRating(ON.tc)}` : '' }
+    : { n: ON.seeking ? 'Searching…' : 'Opponent', s: ON.seeking ? `${ON.seeking.tc} · rated` : ON.me ? 'Not paired yet' : '' },
 };

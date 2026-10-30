@@ -1,0 +1,8 @@
+# Woodpusher: everything is open to search engines except the API and links to single games and challenges
+User-agent: *
+Disallow: /api/
+Disallow: /admin
+Disallow: /c/
+Disallow: /game/
+
+Sitemap: https://www.woodpusher.org/sitemap.xml

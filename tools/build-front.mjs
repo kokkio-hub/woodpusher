@@ -48,7 +48,16 @@ const page = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Play chess online, against Stockfish, solve puzzles and learn openings on a hand-drawn wooden board.">
+<meta name="description" content="Play chess online or against Stockfish on a hand-drawn wooden board. Review your games with every move graded and the big moments explained, solve puzzles and learn openings.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Woodpusher">
+<meta property="og:title" content="Woodpusher: chess on a hand-drawn wooden board">
+<meta property="og:description" content="Play people online or Stockfish, review your games with every move graded, solve puzzles and learn openings.">
+<meta property="og:image" content="https://www.woodpusher.org/share/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A wooden chessboard in Woodpusher's game review, next to the Woodpusher logo">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -82,6 +91,10 @@ fs.copyFileSync(F('privacy.html'), P('privacy.html'));
 fs.copyFileSync(F('404.html'), P('404.html'));
 fs.copyFileSync(F('favicon.svg'), P('favicon.svg'));
 fs.mkdirSync(P('fonts'), { recursive: true }); for (const f of fs.readdirSync(F('fonts'))) fs.copyFileSync(F('fonts/' + f), P('fonts/' + f));
+// Link previews (og:image, not kept for offline use) and what search engines may read
+fs.rmSync(P('share'), { recursive: true, force: true }); fs.mkdirSync(P('share'), { recursive: true });
+for (const f of fs.readdirSync(F('share'))) fs.copyFileSync(F('share/' + f), P('share/' + f));
+fs.copyFileSync(F('robots.txt'), P('robots.txt')); fs.copyFileSync(F('sitemap.xml'), P('sitemap.xml'));
 // Installing as an app: manifest and icons
 fs.copyFileSync(F('manifest.webmanifest'), P('manifest.webmanifest'));
 fs.rmSync(P('icons'), { recursive: true, force: true }); fs.mkdirSync(P('icons'), { recursive: true });

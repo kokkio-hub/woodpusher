@@ -3,8 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Play chess online, against Stockfish, solve puzzles and learn openings on a hand-drawn wooden board.">
-<link rel="icon" href="/favicon.svg?v=e3c3a28c2f" type="image/svg+xml">
+<meta name="description" content="Play chess online or against Stockfish on a hand-drawn wooden board. Review your games with every move graded and the big moments explained, solve puzzles and learn openings.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Woodpusher">
+<meta property="og:title" content="Woodpusher: chess on a hand-drawn wooden board">
+<meta property="og:description" content="Play people online or Stockfish, review your games with every move graded, solve puzzles and learn openings.">
+<meta property="og:image" content="https://www.woodpusher.org/share/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A wooden chessboard in Woodpusher's game review, next to the Woodpusher logo">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg?v=377f5aa018" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="application-name" content="Woodpusher">
@@ -15,9 +24,9 @@
 <link rel="preload" href="/fonts/outfit-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <meta name="theme-color" content="#f3f1ef">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}[hidden]{display:none!important}</style>
-<title>Woodpusher</title>
-<link rel="stylesheet" href="/fonts/fonts.css?v=e3c3a28c2f">
-<script src="/look.js?v=e3c3a28c2f"></script>
+<title>Woodpusher · Play chess and review your games</title>
+<link rel="stylesheet" href="/fonts/fonts.css?v=377f5aa018">
+<script src="/look.js?v=377f5aa018"></script>
 <style>
 /* Layout, like chess.com: the menu down the left side (a row of buttons on phones), the wooden board in the middle with a player bar above and below it (name, rating, captured pieces, clock), and beside it a panel with tabs, the move list and the move and game buttons. Coloured after the logo: espresso leather, tan and walnut. */
 :root {
@@ -242,6 +251,7 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 0 0 2px rgba(22,9,3,.85), 0 2px 7px rgba(0,0,0,.55); cursor: default;
 }
 .board.can-move { cursor: pointer; }
+body[data-mode="edit"] .board { cursor: pointer; }
 #boardCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #b88a55; }
 .layer { position: absolute; inset: 0; pointer-events: none; }
 .hl { position: absolute; width: 12.5%; height: 12.5%; left: calc(var(--c) * 12.5%); top: calc(var(--r) * 12.5%); }
@@ -252,6 +262,7 @@ button { font: inherit; color: inherit; }
 .hl-pre { background: rgba(196,48,34,.5); box-shadow: inset 0 0 0 2px rgba(120,18,10,.35); }
 .board-wrap[data-board="glass"] .hl-pre { background: rgba(255,92,80,.36); }
 .hl-hover { box-shadow: inset 0 0 0 3px rgba(255,248,230,.75); }
+.hl-mark { background: var(--mk); opacity: .62; }
 .hl-check { background: radial-gradient(circle, rgba(225,38,28,.9) 0%, rgba(225,38,28,.5) 32%, rgba(225,38,28,0) 68%); }
 .hl-cls { background: color-mix(in srgb, var(--cc) 62%, transparent); mix-blend-mode: multiply; }
 .hint::after { content: ""; position: absolute; left: 50%; top: 50%; width: 30%; height: 30%; transform: translate(-50%,-50%); border-radius: 50%; background: rgba(28,14,5,.38); }
@@ -308,7 +319,8 @@ button { font: inherit; color: inherit; }
 .side-foot { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid rgba(var(--line),.2); flex: none; }
 .board-tools { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
 .board-tools .icon-btn { flex: 1 1 0; width: auto; min-width: 40px; }
-.board-tools .ap-tool { flex: 2 1 auto; }
+.board-tools .ap-tool { flex: 1 1 0; min-width: 40px; padding: 0; }
+.board-tools .ap-tool.ap-text { flex: 2 1 auto; padding: 0 14px 0 11px; }
 @media (min-width: 980px) {
   .side { width: 360px; max-width: none; contain: size; overflow: hidden; }
   .side-body { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(var(--line),.4) transparent; }
@@ -377,6 +389,7 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .sheet-players { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 14px; font-size: 14.5px; padding: 9px 0; border-bottom: 1px solid rgba(var(--line),.2); }
 .sheet-players dt { color: var(--ivory-dim); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; align-self: center; }
 .sheet-players dd { margin: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mempty { margin: 12px 4px; color: var(--ivory-dim); font-size: 14px; font-style: italic; }
 .mlist { max-height: 330px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(var(--line),.4) transparent; }
 .mhead, .mrow { display: grid; grid-template-columns: 38px minmax(0,1fr) minmax(0,1fr); }
 .mhead { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ivory-dim); font-weight: 700; padding: 9px 0 5px; }
@@ -431,6 +444,50 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .cls-table th:first-child { text-align: left; padding-left: 0; }
 .cls-table td { padding: 5px 6px; border-top: 1px solid rgba(var(--line),.16); text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .cls-table td:first-child { text-align: left; padding-left: 0; font-weight: 500; }
+/* buttons on the paper of the note (light paper in both looks) */
+.annot .btn { color: var(--ink); border-color: #c29a72; background: rgba(0,0,0,.04); }
+.annot .btn:hover { background: rgba(0,0,0,.08); border-color: var(--ink-soft); }
+.ex-actions { margin-top: 10px; }
+.annot-badge svg { width: 16px; height: 16px; fill: currentColor; }
+/* the analysis board */
+.an-turn { margin: 0; font-weight: 600; font-size: 14px; color: var(--ivory-dim); }
+.an-lines { display: flex; flex-direction: column; gap: 6px; }
+.an-line { display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 5px; cursor: pointer;
+  border: 1px solid rgba(var(--line),.28); background: rgba(var(--well), calc(.2 * var(--well-k))); color: var(--ivory); font: 500 14.5px/1.45 var(--f-body); }
+.an-line:hover { border-color: var(--brass); }
+.an-line .annot-eval { margin-left: 0; font-size: 13.5px; padding: 4px 7px; }
+.an-pv { min-width: 0; overflow-wrap: anywhere; }
+.an-empty { margin: 4px 0; color: var(--ivory-dim); font-size: 14.5px; }
+.an-depth { margin: 0; }
+.an-actions .btn, .imp-more .btn { flex: 0 1 auto; }
+.an-fen { display: flex; gap: 8px; }
+.an-fen .input { flex: 1; min-width: 0; font-family: var(--f-mono, ui-monospace, monospace); font-size: 13px; }
+/* the position editor */
+.ed-tools { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.ed-tool { aspect-ratio: 1; display: grid; place-items: center; padding: 3px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(var(--line),.3); background: rgba(var(--well), calc(.2 * var(--well-k))); color: var(--ivory); }
+.ed-tool svg { width: 100%; height: 100%; display: block; }
+.ed-tool.ic svg { width: 62%; height: 62%; fill: currentColor; }
+.ed-tool[aria-pressed="true"] { border-color: var(--brass); box-shadow: inset 0 0 0 2px var(--brass); background: rgba(var(--line),.16); }
+/* the Review a game page */
+.imp-more { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid rgba(var(--line),.2); }
+#impPastePane { display: flex; flex-direction: column; gap: 10px; }
+#impPastePane:not([hidden]) textarea { min-height: 120px; }
+#impPastePane p { margin: 0; }
+#pgnGo { align-self: flex-start; }
+/* pages without moves to step through */
+body[data-mode="import"] .side-foot, body[data-mode="edit"] .side-foot { display: none; }
+/* A review shows the note and the move list together, like chess.com. The review's parts and the move list
+   share one column (display: contents), in this order: summary at the top, then the note on the current move
+   right above the moves, then the controls, and the table of move grades last. */
+body[data-mode="review"] #reviewPanel:not([hidden]) { display: contents; }
+#reviewPanel > .rv-head { order: 1; } #reviewPanel > .rv-progress { order: 2; } #reviewPanel > .rv-deep { order: 3; }
+#reviewPanel > .acc { order: 4; } #reviewPanel > .rv-mist { order: 5; } #reviewPanel > .graph { order: 6; }
+#reviewPanel > .annot { order: 7; } body[data-mode="review"] .side-body > .sheet { order: 8; }
+#reviewPanel > .ap { order: 9; } #reviewPanel > .rv-nav { order: 10; } #reviewPanel > .cls-table { order: 11; }
+#reviewPanel > *, body[data-mode="review"] .side-body > .sheet { flex-shrink: 0; }   /* the panel scrolls; nothing gets squeezed */
+body[data-mode="review"] .side-body > .sheet .sheet-head { display: none; }
+body[data-mode="review"] .side-body > .sheet .mlist { max-height: 216px; min-height: 0; }
+@media (min-width: 980px) { body[data-mode="review"] .side-body > .sheet { flex: none; } }
 .cls-table .cls-dot { display: inline-grid; margin: 0 8px 0 0; vertical-align: -3px; }
 /* play through: replays the game and stops at brilliant and great moves, mistakes and blunders */
 .ap { display: flex; flex-direction: column; gap: 6px; }
@@ -731,6 +788,23 @@ button.rbox[aria-pressed="true"] { border-color: var(--brass); box-shadow: inset
 .imp-go { font-size: 13.5px; font-weight: 700; color: var(--brass-hi); }
 .imp-row:hover .imp-go { text-decoration: underline; }
 .err { color: #ffb4a8; font-size: 14.5px; margin: 8px 0 0; }
+/* the account dialog */
+.auth-modal { width: min(440px, 100%); display: flex; flex-direction: column; gap: 14px; }
+.auth-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.auth-head h2 { font-family: var(--f-display); font-weight: 600; color: var(--brass-hi); margin: 0; font-size: 22px; }
+.auth-head .banner-close { position: static; color: var(--ivory-dim); }
+.auth-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; font-size: 14px; color: var(--ivory-dim); }
+.auth-links .back-link { display: inline; }
+.code-box { margin: 0; padding: 14px; text-align: center; font: 700 clamp(17px, 5vw, 22px)/1.2 ui-monospace, 'Share Tech Mono', monospace; letter-spacing: .06em; border-radius: 6px; border: 1px dashed var(--brass); background: rgba(var(--well), calc(.25 * var(--well-k))); color: var(--ivory); user-select: all; overflow-wrap: anywhere; }
+.code-input { text-transform: uppercase; letter-spacing: .05em; }
+/* the account button: in the menu column on wide screens, at the top right on phones */
+#btnAccount .lbl-s { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 979px) {
+  #btnAccount { display: inline-flex; align-items: center; gap: 6px; max-width: 46vw; }
+  #btnAccount[hidden] { display: none; }
+  #btnAccount .nav-ic { display: block; width: 18px; height: 18px; }
+  #btnAccount .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 /* matchmaking bar: you are in the queue while you do something else */
 .qbar { position: fixed; left: calc(50% + var(--navw) / 2); transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 45; display: flex; align-items: center; gap: 8px; padding: 7px 7px 7px 14px; border-radius: 999px; background: var(--leather-hi); border: 1px solid var(--brass); box-shadow: 0 10px 28px rgba(0,0,0,.35); max-width: calc(100vw - 24px); box-sizing: border-box; font-size: 14.5px; font-weight: 600; animation: qrise .25s ease; }
 @keyframes qrise { from { transform: translate(-50%, 10px); opacity: 0; } }
@@ -825,8 +899,12 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
   .qp-more u { color: var(--brass-hi); text-decoration: none; font-weight: 600; margin-left: 4px; }
   .qp-go { flex: 0 0 44%; font-size: 18px; padding: 13px; }
 
-  /* in a review the note on the current move comes first, right under the board */
-  #reviewPanel > .annot { order: -1; }
+  /* in a review the note on the current move comes first, right under the board, then the moves */
+  #reviewPanel > .annot { order: -2; }
+  body[data-mode="review"] .side-body > .sheet { order: -1; }
+  body[data-mode="review"] .side-body > .sheet .mlist { max-height: 168px; }
+  /* the Review a game page: the form first, the empty board after it */
+  body[data-mode="import"] .room > .side { order: -1; }
   /* no empty line between the board and the buttons; the line under the board only takes room when it says something */
   .view-note:empty { display: none; }
 }
@@ -917,6 +995,7 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
     <button class="btn btn-small nav-item tab" id="btnImport"><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.4 2.6a7.8 7.8 0 0 1 6.3 12.4l4.6 4.6-1.7 1.7-4.6-4.6A7.8 7.8 0 1 1 10.4 2.6zm0 2.2a5.6 5.6 0 1 0 0 11.2 5.6 5.6 0 0 0 0-11.2z"/><path d="M6.9 12.2l2.3-2.6 1.9 1.6 2.9-3.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Review a game</span><span class="lbl-s" aria-hidden="true">Review</span></button>
     <button class="btn btn-small nav-item" id="btnSettings" aria-haspopup="dialog"><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.8 1.7 1l.4 2.6h4l.4-2.6c.6-.2 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5A3.5 3.5 0 1 1 13 8.5a3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg><span class="lbl">Settings</span><span class="lbl-s" aria-hidden="true">Settings</span></button>
   </nav>
+  <button class="btn btn-small nav-item acct" id="btnAccount" hidden><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4.6 4.6 0 1 0 0-9.2 4.6 4.6 0 0 0 0 9.2zm0 2.1c-4.6 0-8.3 2.6-8.3 5.7v1.4h16.6v-1.4c0-3.1-3.7-5.7-8.3-5.7z"/></svg><span class="lbl">Log in</span><span class="lbl-s" aria-hidden="true">Log in</span></button>
 </header>
 
 <main class="room">
@@ -976,13 +1055,32 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
         <button class="btn btn-brass btn-play" id="btnPlay">Play</button>
         <div class="engine-status" id="engineStatus" role="status">Stockfish is loading…</div>
       </section>
-      <section class="card" id="reviewCta" aria-labelledby="ctaTitle">
-        <h2 id="ctaTitle">Review a game</h2>
-        <p class="card-sub" style="margin-bottom:0" id="ctaSub">Paste a PGN from Chess.com or Lichess and get every move graded, from best to blunder.</p>
-        <div class="cta-row">
-          <button class="btn" id="btnFindGames" hidden>Find my games</button>
-          <button class="btn" id="btnImport2">Paste a PGN</button>
-          <button class="btn" id="btnSample">Try Morphy's Opera Game</button>
+      <section class="card stack" id="importPanel" hidden aria-labelledby="impTitle">
+        <div><h2 id="impTitle">Review a game</h2><p class="card-sub" style="margin:4px 0 0">Stockfish grades every move, from brilliant to blunder, and explains the big moments in plain words.</p></div>
+        <div class="imp-tabs" role="group" aria-label="How to find the game" id="impTabs" hidden>
+          <button class="imp-tab" data-imptab="user">Find by username</button>
+          <button class="imp-tab" data-imptab="paste">Paste a PGN</button>
+        </div>
+        <div id="impUserPane" hidden>
+          <p class="fine" style="margin:0 0 10px">Type your username on Lichess or Chess.com, then pick one of your recent games.</p>
+          <form class="imp-form" id="impForm" novalidate>
+            <div class="seg" role="group" aria-label="Site" id="impSite" style="grid-template-columns:1fr 1fr">
+              <button type="button" class="seg-btn" data-site="lichess">Lichess</button>
+              <button type="button" class="seg-btn" data-site="chesscom">Chess.com</button>
+            </div>
+            <div class="link-row"><input class="input" id="impName" name="impname" aria-label="Username" placeholder="Username" maxlength="30" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn btn-brass" type="submit" id="impGo">Find games</button></div>
+          </form>
+          <p class="err" id="impErr" hidden role="alert"></p>
+          <div class="imp-list" id="impList" aria-live="polite"></div>
+        </div>
+        <div id="impPastePane">
+          <p class="fine">Paste a PGN or a plain move list. On Chess.com: Share, then PGN. On Lichess: Share &amp; export, then PGN.</p>
+          <textarea id="pgnInput" spellcheck="false" aria-label="PGN" placeholder="[White &quot;You&quot;]&#10;[Black &quot;Opponent&quot;]&#10;1. d4 d5 2. Bf4 c6 3. e3 Nf6 …"></textarea>
+          <p class="err" id="pgnErr" hidden></p>
+          <button class="btn btn-brass" id="pgnGo">Review</button>
+        </div>
+        <div class="imp-more"><span class="field-label" style="margin:0">Or look at a position yourself</span>
+          <div class="actions"><button class="btn" id="btnAnalysis">Analysis board</button><button class="btn" id="btnSetup">Set up a position</button><button class="btn" id="btnSample">Try Morphy's Opera Game</button></div>
         </div>
       </section>
       <section class="card stack" id="puzzlePanel" hidden aria-labelledby="pzTitle">
@@ -1025,6 +1123,23 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
           <button class="btn btn-small" id="btnNextKey">Next mistake →</button>
         </div>
         <table class="cls-table" id="clsTable"></table>
+      </section>
+      <section class="card stack" id="analysisPanel" hidden aria-labelledby="anTitle">
+        <div class="rv-head"><h2 id="anTitle">Analysis board</h2><button class="btn btn-small" id="anDone">Done</button></div>
+        <p class="card-sub" style="margin:0">Move the pieces for both sides. Stockfish shows its best lines for the position on the board; click a line to play its first move.</p>
+        <div id="anLook" aria-live="polite"></div>
+        <div class="actions an-actions"><button class="btn btn-small" id="anSetup">Set up a position</button><button class="btn btn-small" id="anFenBtn">Load FEN</button><button class="btn btn-small" id="anCopyFen">Copy FEN</button><button class="btn btn-small" id="anReview" hidden>Review these moves</button></div>
+        <form class="an-fen" id="anFenForm" hidden novalidate><input class="input" id="anFen" aria-label="FEN" placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" spellcheck="false" autocomplete="off" autocapitalize="off"><button class="btn btn-brass" type="submit">Load</button></form>
+        <p class="err" id="anErr" hidden role="alert"></p>
+      </section>
+      <section class="card stack" id="editPanel" hidden aria-labelledby="edTitle">
+        <div class="rv-head"><h2 id="edTitle">Set up a position</h2><button class="btn btn-small" id="edCancel">Cancel</button></div>
+        <p class="card-sub" style="margin:0" id="edHelp"></p>
+        <div class="ed-tools" role="group" aria-label="Tool" id="edTools"></div>
+        <div class="seg" role="group" aria-label="Side to move" id="edTurn" style="grid-template-columns:1fr 1fr"><button class="seg-btn" data-turn="w">White to move</button><button class="seg-btn" data-turn="b">Black to move</button></div>
+        <div class="actions"><button class="btn btn-small" id="edStart">Starting position</button><button class="btn btn-small" id="edClear">Clear the board</button><button class="btn btn-small" id="edFlip">Flip the board</button></div>
+        <p class="err" id="edErr" hidden role="alert"></p>
+        <button class="btn btn-brass btn-play" id="edGo">Analyse this position</button>
       </section>
       <section class="sheet" id="sheet" aria-label="Score sheet">
         <div class="sheet-head"><span class="sheet-title">Score sheet</span><span class="sheet-tc" id="sheetTc"></span></div>
@@ -1070,38 +1185,6 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
   <span><span id="footInstall" hidden><a href="#" data-install>Install the app</a> · </span><a href="/leaderboard">Leaderboard</a> · <a href="/privacy.html">Privacy</a> · <a href="https://github.com/kokkio-hub/woodpusher" target="_blank" rel="noopener">Source code</a><span class="keys-hint"> · Keys: ← → step · Home / End · F flips · Space plays a review</span></span>
 </footer>
 
-<div class="modal-back" id="pgnModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pgnTitle">
-    <h2 id="pgnTitle" style="font-family:var(--f-display);font-weight:600;color:var(--brass-hi);margin:0;font-size:22px">Review a game</h2>
-    <div class="imp-tabs" role="group" aria-label="How to find the game" id="impTabs" hidden>
-      <button class="imp-tab" data-imptab="user">Find by username</button>
-      <button class="imp-tab" data-imptab="paste">Paste a PGN</button>
-    </div>
-    <div id="impUserPane" hidden>
-      <p>Type your username on Lichess or Chess.com, then pick one of your recent games.</p>
-      <form class="imp-form" id="impForm" novalidate>
-        <div class="seg" role="group" aria-label="Site" id="impSite" style="grid-template-columns:1fr 1fr">
-          <button type="button" class="seg-btn" data-site="lichess">Lichess</button>
-          <button type="button" class="seg-btn" data-site="chesscom">Chess.com</button>
-        </div>
-        <div class="link-row"><input class="input" id="impName" name="impname" aria-label="Username" placeholder="Username" maxlength="30" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn btn-brass" type="submit" id="impGo">Find games</button></div>
-      </form>
-      <p class="err" id="impErr" hidden role="alert"></p>
-      <div class="imp-list" id="impList" aria-live="polite"></div>
-    </div>
-    <div id="impPastePane">
-      <p>Paste a PGN or a plain move list. On Chess.com: Share, then PGN. On Lichess: Share &amp; export, then PGN.</p>
-      <textarea id="pgnInput" spellcheck="false" aria-label="PGN" placeholder="[White &quot;You&quot;]&#10;[Black &quot;Opponent&quot;]&#10;1. d4 d5 2. Bf4 c6 3. e3 Nf6 …"></textarea>
-      <p class="err" id="pgnErr" hidden></p>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-small" id="pgnSample">Load Morphy's Opera Game</button>
-      <span class="sp"></span>
-      <button class="btn" id="pgnCancel">Cancel</button>
-      <button class="btn btn-brass" id="pgnGo">Review</button>
-    </div>
-  </div>
-</div>
 <div class="modal-back" id="exportModal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="expTitle">
     <h2 id="expTitle" style="font-family:var(--f-display);font-weight:600;color:var(--brass-hi);margin:0;font-size:22px">PGN</h2>
@@ -1149,10 +1232,10 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
 <div id="toastHost"></div>
 <div class="sr-only" aria-live="polite" id="live"></div>
 
-<script src="/data.js?v=e3c3a28c2f"></script>
-<script src="/chess.js?v=e3c3a28c2f"></script>
+<script src="/data.js?v=377f5aa018"></script>
+<script src="/chess.js?v=377f5aa018"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=e3c3a28c2f"></script>
+<script src="/app.js?v=377f5aa018"></script>
 
 </body>
 </html>

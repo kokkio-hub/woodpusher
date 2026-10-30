@@ -1,7 +1,7 @@
 /* =====================================================================
-   Review a game: find your recent games on Lichess or Chess.com by
-   username (the Woodpusher server fetches them, see server/import.js),
-   or paste a PGN.
+   The Review a game page: find your recent games on Lichess or Chess.com
+   by username (the Woodpusher server fetches them, see server/import.js),
+   or paste a PGN. The analysis board and the editor are in app.html.
    ===================================================================== */
 const IMP_KEY = 'woodpusher.import.v1';
 const IMP_SITES = { lichess: 'Lichess', chesscom: 'Chess.com' };
@@ -38,7 +38,6 @@ function impRender() {
   $('#impTabs').hidden = !can;
   document.querySelectorAll('#impTabs [data-imptab]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.imptab === (user ? 'user' : 'paste'))));
   $('#impUserPane').hidden = !user; $('#impPastePane').hidden = user;
-  $('#pgnSample').hidden = user; $('#pgnGo').hidden = user; $('#pgnCancel').textContent = user ? 'Close' : 'Cancel';
   if (!can) return;
   document.querySelectorAll('#impSite .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.site === IMP.site)));
   const go = $('#impGo'); go.disabled = IMP.busy; go.textContent = IMP.busy ? 'Finding…' : 'Find games';
@@ -70,7 +69,7 @@ async function impSearch() {
 function impReview(i) {
   const g = IMP.data && IMP.data.games[i]; if (!g) return;
   if (S.mode === 'play') { IMP.error = 'Finish or abandon your current game first.'; impRender(); return; }
-  try { loadPGNForReview(g.pgn, { you: g.you, reason: g.reason }); $('#pgnModal').hidden = true; }
+  try { loadPGNForReview(g.pgn, { you: g.you, reason: g.reason }); }
   catch (e) { IMP.error = e.message; impRender(); }
 }
 function impOpen(tab) {
@@ -81,13 +80,11 @@ function impOpen(tab) {
     const inp = $('#impName'); if (!inp.value) inp.value = IMP.name;
     // A remembered username shows its games straight away
     if (inp.value && !IMP.busy && !(IMP.data && IMP.data.site === IMP.site && IMP.data.username.toLowerCase() === inp.value.trim().toLowerCase())) impSearch();
-    if (!inp.value) inp.focus();
-  } else $('#pgnInput').focus();
+    if (!inp.value && !coarse()) inp.focus();      // on a phone the keyboard waits for a tap
+  } else if (!coarse()) $('#pgnInput').focus();
 }
 function impBoot() {
   if (!impAvailable() || IMP.wired) return; IMP.wired = true;
-  $('#btnFindGames').hidden = false;
-  $('#ctaSub').textContent = 'Pick one of your games on Lichess or Chess.com by username, or paste a PGN, and get every move graded, from best to blunder.';
   $('#impTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-imptab]'); if (!b) return; IMP.tab = b.dataset.imptab; saveImp(); impOpen(); });
   $('#impSite').addEventListener('click', (e) => { const b = e.target.closest('[data-site]'); if (!b || b.dataset.site === IMP.site) return; IMP.site = b.dataset.site; IMP.error = ''; IMP.token++; IMP.busy = false; saveImp(); impRender(); $('#impName').focus(); });
   $('#impForm').addEventListener('submit', (e) => { e.preventDefault(); impSearch(); });

@@ -23,7 +23,7 @@ async def main():
             pg.on('console', lambda m, n=name: errs.append(f'{n} console: {m.text}') if m.type == 'error' else None)
             await pg.goto(BASE + '/'); await asyncio.sleep(1)
             await pg.click('#btnOnline'); await asyncio.sleep(.4)
-            await pg.click('#onlinePanel [data-auth="register"]'); await pg.fill('#authUser', name); await pg.fill('#authPass', 'password123'); await pg.click('#authForm button[type=submit]')
+            await pg.click('#onlinePanel [data-act="register"]'); await pg.fill('#authBox [name=username]', name); await pg.fill('#authBox [name=password]', 'password123'); await pg.click('#authBox button[type=submit]'); await pg.click('#authBox [data-acct="saved"]')
             ok = await poll(pg, "ON.me && ON.connected && ON.me.username", 10); print('registered', ok)
             pages[name] = pg
         A, B = pages.values()

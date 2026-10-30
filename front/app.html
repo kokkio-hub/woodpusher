@@ -1,4 +1,4 @@
-<title>Woodpusher</title>
+<title>Woodpusher · Play chess and review your games</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -228,6 +228,7 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 0 0 2px rgba(22,9,3,.85), 0 2px 7px rgba(0,0,0,.55); cursor: default;
 }
 .board.can-move { cursor: pointer; }
+body[data-mode="edit"] .board { cursor: pointer; }
 #boardCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #b88a55; }
 .layer { position: absolute; inset: 0; pointer-events: none; }
 .hl { position: absolute; width: 12.5%; height: 12.5%; left: calc(var(--c) * 12.5%); top: calc(var(--r) * 12.5%); }
@@ -238,6 +239,7 @@ button { font: inherit; color: inherit; }
 .hl-pre { background: rgba(196,48,34,.5); box-shadow: inset 0 0 0 2px rgba(120,18,10,.35); }
 .board-wrap[data-board="glass"] .hl-pre { background: rgba(255,92,80,.36); }
 .hl-hover { box-shadow: inset 0 0 0 3px rgba(255,248,230,.75); }
+.hl-mark { background: var(--mk); opacity: .62; }
 .hl-check { background: radial-gradient(circle, rgba(225,38,28,.9) 0%, rgba(225,38,28,.5) 32%, rgba(225,38,28,0) 68%); }
 .hl-cls { background: color-mix(in srgb, var(--cc) 62%, transparent); mix-blend-mode: multiply; }
 .hint::after { content: ""; position: absolute; left: 50%; top: 50%; width: 30%; height: 30%; transform: translate(-50%,-50%); border-radius: 50%; background: rgba(28,14,5,.38); }
@@ -294,7 +296,8 @@ button { font: inherit; color: inherit; }
 .side-foot { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid rgba(var(--line),.2); flex: none; }
 .board-tools { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
 .board-tools .icon-btn { flex: 1 1 0; width: auto; min-width: 40px; }
-.board-tools .ap-tool { flex: 2 1 auto; }
+.board-tools .ap-tool { flex: 1 1 0; min-width: 40px; padding: 0; }
+.board-tools .ap-tool.ap-text { flex: 2 1 auto; padding: 0 14px 0 11px; }
 @media (min-width: 980px) {
   .side { width: 360px; max-width: none; contain: size; overflow: hidden; }
   .side-body { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(var(--line),.4) transparent; }
@@ -363,6 +366,7 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .sheet-players { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 14px; font-size: 14.5px; padding: 9px 0; border-bottom: 1px solid rgba(var(--line),.2); }
 .sheet-players dt { color: var(--ivory-dim); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; align-self: center; }
 .sheet-players dd { margin: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mempty { margin: 12px 4px; color: var(--ivory-dim); font-size: 14px; font-style: italic; }
 .mlist { max-height: 330px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(var(--line),.4) transparent; }
 .mhead, .mrow { display: grid; grid-template-columns: 38px minmax(0,1fr) minmax(0,1fr); }
 .mhead { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ivory-dim); font-weight: 700; padding: 9px 0 5px; }
@@ -417,6 +421,50 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .cls-table th:first-child { text-align: left; padding-left: 0; }
 .cls-table td { padding: 5px 6px; border-top: 1px solid rgba(var(--line),.16); text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .cls-table td:first-child { text-align: left; padding-left: 0; font-weight: 500; }
+/* buttons on the paper of the note (light paper in both looks) */
+.annot .btn { color: var(--ink); border-color: #c29a72; background: rgba(0,0,0,.04); }
+.annot .btn:hover { background: rgba(0,0,0,.08); border-color: var(--ink-soft); }
+.ex-actions { margin-top: 10px; }
+.annot-badge svg { width: 16px; height: 16px; fill: currentColor; }
+/* the analysis board */
+.an-turn { margin: 0; font-weight: 600; font-size: 14px; color: var(--ivory-dim); }
+.an-lines { display: flex; flex-direction: column; gap: 6px; }
+.an-line { display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 5px; cursor: pointer;
+  border: 1px solid rgba(var(--line),.28); background: rgba(var(--well), calc(.2 * var(--well-k))); color: var(--ivory); font: 500 14.5px/1.45 var(--f-body); }
+.an-line:hover { border-color: var(--brass); }
+.an-line .annot-eval { margin-left: 0; font-size: 13.5px; padding: 4px 7px; }
+.an-pv { min-width: 0; overflow-wrap: anywhere; }
+.an-empty { margin: 4px 0; color: var(--ivory-dim); font-size: 14.5px; }
+.an-depth { margin: 0; }
+.an-actions .btn, .imp-more .btn { flex: 0 1 auto; }
+.an-fen { display: flex; gap: 8px; }
+.an-fen .input { flex: 1; min-width: 0; font-family: var(--f-mono, ui-monospace, monospace); font-size: 13px; }
+/* the position editor */
+.ed-tools { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.ed-tool { aspect-ratio: 1; display: grid; place-items: center; padding: 3px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(var(--line),.3); background: rgba(var(--well), calc(.2 * var(--well-k))); color: var(--ivory); }
+.ed-tool svg { width: 100%; height: 100%; display: block; }
+.ed-tool.ic svg { width: 62%; height: 62%; fill: currentColor; }
+.ed-tool[aria-pressed="true"] { border-color: var(--brass); box-shadow: inset 0 0 0 2px var(--brass); background: rgba(var(--line),.16); }
+/* the Review a game page */
+.imp-more { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid rgba(var(--line),.2); }
+#impPastePane { display: flex; flex-direction: column; gap: 10px; }
+#impPastePane:not([hidden]) textarea { min-height: 120px; }
+#impPastePane p { margin: 0; }
+#pgnGo { align-self: flex-start; }
+/* pages without moves to step through */
+body[data-mode="import"] .side-foot, body[data-mode="edit"] .side-foot { display: none; }
+/* A review shows the note and the move list together, like chess.com. The review's parts and the move list
+   share one column (display: contents), in this order: summary at the top, then the note on the current move
+   right above the moves, then the controls, and the table of move grades last. */
+body[data-mode="review"] #reviewPanel:not([hidden]) { display: contents; }
+#reviewPanel > .rv-head { order: 1; } #reviewPanel > .rv-progress { order: 2; } #reviewPanel > .rv-deep { order: 3; }
+#reviewPanel > .acc { order: 4; } #reviewPanel > .rv-mist { order: 5; } #reviewPanel > .graph { order: 6; }
+#reviewPanel > .annot { order: 7; } body[data-mode="review"] .side-body > .sheet { order: 8; }
+#reviewPanel > .ap { order: 9; } #reviewPanel > .rv-nav { order: 10; } #reviewPanel > .cls-table { order: 11; }
+#reviewPanel > *, body[data-mode="review"] .side-body > .sheet { flex-shrink: 0; }   /* the panel scrolls; nothing gets squeezed */
+body[data-mode="review"] .side-body > .sheet .sheet-head { display: none; }
+body[data-mode="review"] .side-body > .sheet .mlist { max-height: 216px; min-height: 0; }
+@media (min-width: 980px) { body[data-mode="review"] .side-body > .sheet { flex: none; } }
 .cls-table .cls-dot { display: inline-grid; margin: 0 8px 0 0; vertical-align: -3px; }
 /* play through: replays the game and stops at brilliant and great moves, mistakes and blunders */
 .ap { display: flex; flex-direction: column; gap: 6px; }
@@ -717,6 +765,23 @@ button.rbox[aria-pressed="true"] { border-color: var(--brass); box-shadow: inset
 .imp-go { font-size: 13.5px; font-weight: 700; color: var(--brass-hi); }
 .imp-row:hover .imp-go { text-decoration: underline; }
 .err { color: #ffb4a8; font-size: 14.5px; margin: 8px 0 0; }
+/* the account dialog */
+.auth-modal { width: min(440px, 100%); display: flex; flex-direction: column; gap: 14px; }
+.auth-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.auth-head h2 { font-family: var(--f-display); font-weight: 600; color: var(--brass-hi); margin: 0; font-size: 22px; }
+.auth-head .banner-close { position: static; color: var(--ivory-dim); }
+.auth-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; font-size: 14px; color: var(--ivory-dim); }
+.auth-links .back-link { display: inline; }
+.code-box { margin: 0; padding: 14px; text-align: center; font: 700 clamp(17px, 5vw, 22px)/1.2 ui-monospace, 'Share Tech Mono', monospace; letter-spacing: .06em; border-radius: 6px; border: 1px dashed var(--brass); background: rgba(var(--well), calc(.25 * var(--well-k))); color: var(--ivory); user-select: all; overflow-wrap: anywhere; }
+.code-input { text-transform: uppercase; letter-spacing: .05em; }
+/* the account button: in the menu column on wide screens, at the top right on phones */
+#btnAccount .lbl-s { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 979px) {
+  #btnAccount { display: inline-flex; align-items: center; gap: 6px; max-width: 46vw; }
+  #btnAccount[hidden] { display: none; }
+  #btnAccount .nav-ic { display: block; width: 18px; height: 18px; }
+  #btnAccount .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 /* matchmaking bar: you are in the queue while you do something else */
 .qbar { position: fixed; left: calc(50% + var(--navw) / 2); transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 45; display: flex; align-items: center; gap: 8px; padding: 7px 7px 7px 14px; border-radius: 999px; background: var(--leather-hi); border: 1px solid var(--brass); box-shadow: 0 10px 28px rgba(0,0,0,.35); max-width: calc(100vw - 24px); box-sizing: border-box; font-size: 14.5px; font-weight: 600; animation: qrise .25s ease; }
 @keyframes qrise { from { transform: translate(-50%, 10px); opacity: 0; } }
@@ -811,8 +876,12 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
   .qp-more u { color: var(--brass-hi); text-decoration: none; font-weight: 600; margin-left: 4px; }
   .qp-go { flex: 0 0 44%; font-size: 18px; padding: 13px; }
 
-  /* in a review the note on the current move comes first, right under the board */
-  #reviewPanel > .annot { order: -1; }
+  /* in a review the note on the current move comes first, right under the board, then the moves */
+  #reviewPanel > .annot { order: -2; }
+  body[data-mode="review"] .side-body > .sheet { order: -1; }
+  body[data-mode="review"] .side-body > .sheet .mlist { max-height: 168px; }
+  /* the Review a game page: the form first, the empty board after it */
+  body[data-mode="import"] .room > .side { order: -1; }
   /* no empty line between the board and the buttons; the line under the board only takes room when it says something */
   .view-note:empty { display: none; }
 }
@@ -900,6 +969,7 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
     <button class="btn btn-small nav-item tab" id="btnImport"><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.4 2.6a7.8 7.8 0 0 1 6.3 12.4l4.6 4.6-1.7 1.7-4.6-4.6A7.8 7.8 0 1 1 10.4 2.6zm0 2.2a5.6 5.6 0 1 0 0 11.2 5.6 5.6 0 0 0 0-11.2z"/><path d="M6.9 12.2l2.3-2.6 1.9 1.6 2.9-3.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Review a game</span><span class="lbl-s" aria-hidden="true">Review</span></button>
     <button class="btn btn-small nav-item" id="btnSettings" aria-haspopup="dialog"><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.8 1.7 1l.4 2.6h4l.4-2.6c.6-.2 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5A3.5 3.5 0 1 1 13 8.5a3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg><span class="lbl">Settings</span><span class="lbl-s" aria-hidden="true">Settings</span></button>
   </nav>
+  <button class="btn btn-small nav-item acct" id="btnAccount" hidden><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4.6 4.6 0 1 0 0-9.2 4.6 4.6 0 0 0 0 9.2zm0 2.1c-4.6 0-8.3 2.6-8.3 5.7v1.4h16.6v-1.4c0-3.1-3.7-5.7-8.3-5.7z"/></svg><span class="lbl">Log in</span><span class="lbl-s" aria-hidden="true">Log in</span></button>
 </header>
 
 <main class="room">
@@ -959,13 +1029,32 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
         <button class="btn btn-brass btn-play" id="btnPlay">Play</button>
         <div class="engine-status" id="engineStatus" role="status">Stockfish is loading…</div>
       </section>
-      <section class="card" id="reviewCta" aria-labelledby="ctaTitle">
-        <h2 id="ctaTitle">Review a game</h2>
-        <p class="card-sub" style="margin-bottom:0" id="ctaSub">Paste a PGN from Chess.com or Lichess and get every move graded, from best to blunder.</p>
-        <div class="cta-row">
-          <button class="btn" id="btnFindGames" hidden>Find my games</button>
-          <button class="btn" id="btnImport2">Paste a PGN</button>
-          <button class="btn" id="btnSample">Try Morphy's Opera Game</button>
+      <section class="card stack" id="importPanel" hidden aria-labelledby="impTitle">
+        <div><h2 id="impTitle">Review a game</h2><p class="card-sub" style="margin:4px 0 0">Stockfish grades every move, from brilliant to blunder, and explains the big moments in plain words.</p></div>
+        <div class="imp-tabs" role="group" aria-label="How to find the game" id="impTabs" hidden>
+          <button class="imp-tab" data-imptab="user">Find by username</button>
+          <button class="imp-tab" data-imptab="paste">Paste a PGN</button>
+        </div>
+        <div id="impUserPane" hidden>
+          <p class="fine" style="margin:0 0 10px">Type your username on Lichess or Chess.com, then pick one of your recent games.</p>
+          <form class="imp-form" id="impForm" novalidate>
+            <div class="seg" role="group" aria-label="Site" id="impSite" style="grid-template-columns:1fr 1fr">
+              <button type="button" class="seg-btn" data-site="lichess">Lichess</button>
+              <button type="button" class="seg-btn" data-site="chesscom">Chess.com</button>
+            </div>
+            <div class="link-row"><input class="input" id="impName" name="impname" aria-label="Username" placeholder="Username" maxlength="30" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn btn-brass" type="submit" id="impGo">Find games</button></div>
+          </form>
+          <p class="err" id="impErr" hidden role="alert"></p>
+          <div class="imp-list" id="impList" aria-live="polite"></div>
+        </div>
+        <div id="impPastePane">
+          <p class="fine">Paste a PGN or a plain move list. On Chess.com: Share, then PGN. On Lichess: Share &amp; export, then PGN.</p>
+          <textarea id="pgnInput" spellcheck="false" aria-label="PGN" placeholder="[White &quot;You&quot;]&#10;[Black &quot;Opponent&quot;]&#10;1. d4 d5 2. Bf4 c6 3. e3 Nf6 …"></textarea>
+          <p class="err" id="pgnErr" hidden></p>
+          <button class="btn btn-brass" id="pgnGo">Review</button>
+        </div>
+        <div class="imp-more"><span class="field-label" style="margin:0">Or look at a position yourself</span>
+          <div class="actions"><button class="btn" id="btnAnalysis">Analysis board</button><button class="btn" id="btnSetup">Set up a position</button><button class="btn" id="btnSample">Try Morphy's Opera Game</button></div>
         </div>
       </section>
       <section class="card stack" id="puzzlePanel" hidden aria-labelledby="pzTitle">
@@ -1008,6 +1097,23 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
           <button class="btn btn-small" id="btnNextKey">Next mistake →</button>
         </div>
         <table class="cls-table" id="clsTable"></table>
+      </section>
+      <section class="card stack" id="analysisPanel" hidden aria-labelledby="anTitle">
+        <div class="rv-head"><h2 id="anTitle">Analysis board</h2><button class="btn btn-small" id="anDone">Done</button></div>
+        <p class="card-sub" style="margin:0">Move the pieces for both sides. Stockfish shows its best lines for the position on the board; click a line to play its first move.</p>
+        <div id="anLook" aria-live="polite"></div>
+        <div class="actions an-actions"><button class="btn btn-small" id="anSetup">Set up a position</button><button class="btn btn-small" id="anFenBtn">Load FEN</button><button class="btn btn-small" id="anCopyFen">Copy FEN</button><button class="btn btn-small" id="anReview" hidden>Review these moves</button></div>
+        <form class="an-fen" id="anFenForm" hidden novalidate><input class="input" id="anFen" aria-label="FEN" placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" spellcheck="false" autocomplete="off" autocapitalize="off"><button class="btn btn-brass" type="submit">Load</button></form>
+        <p class="err" id="anErr" hidden role="alert"></p>
+      </section>
+      <section class="card stack" id="editPanel" hidden aria-labelledby="edTitle">
+        <div class="rv-head"><h2 id="edTitle">Set up a position</h2><button class="btn btn-small" id="edCancel">Cancel</button></div>
+        <p class="card-sub" style="margin:0" id="edHelp"></p>
+        <div class="ed-tools" role="group" aria-label="Tool" id="edTools"></div>
+        <div class="seg" role="group" aria-label="Side to move" id="edTurn" style="grid-template-columns:1fr 1fr"><button class="seg-btn" data-turn="w">White to move</button><button class="seg-btn" data-turn="b">Black to move</button></div>
+        <div class="actions"><button class="btn btn-small" id="edStart">Starting position</button><button class="btn btn-small" id="edClear">Clear the board</button><button class="btn btn-small" id="edFlip">Flip the board</button></div>
+        <p class="err" id="edErr" hidden role="alert"></p>
+        <button class="btn btn-brass btn-play" id="edGo">Analyse this position</button>
       </section>
       <section class="sheet" id="sheet" aria-label="Score sheet">
         <div class="sheet-head"><span class="sheet-title">Score sheet</span><span class="sheet-tc" id="sheetTc"></span></div>
@@ -1053,38 +1159,6 @@ body.has-qbar .toast { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
   <span>Keys: ← → step · Home / End · F flips · Space plays a review</span>
 </footer>
 
-<div class="modal-back" id="pgnModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pgnTitle">
-    <h2 id="pgnTitle" style="font-family:var(--f-display);font-weight:600;color:var(--brass-hi);margin:0;font-size:22px">Review a game</h2>
-    <div class="imp-tabs" role="group" aria-label="How to find the game" id="impTabs" hidden>
-      <button class="imp-tab" data-imptab="user">Find by username</button>
-      <button class="imp-tab" data-imptab="paste">Paste a PGN</button>
-    </div>
-    <div id="impUserPane" hidden>
-      <p>Type your username on Lichess or Chess.com, then pick one of your recent games.</p>
-      <form class="imp-form" id="impForm" novalidate>
-        <div class="seg" role="group" aria-label="Site" id="impSite" style="grid-template-columns:1fr 1fr">
-          <button type="button" class="seg-btn" data-site="lichess">Lichess</button>
-          <button type="button" class="seg-btn" data-site="chesscom">Chess.com</button>
-        </div>
-        <div class="link-row"><input class="input" id="impName" name="impname" aria-label="Username" placeholder="Username" maxlength="30" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn btn-brass" type="submit" id="impGo">Find games</button></div>
-      </form>
-      <p class="err" id="impErr" hidden role="alert"></p>
-      <div class="imp-list" id="impList" aria-live="polite"></div>
-    </div>
-    <div id="impPastePane">
-      <p>Paste a PGN or a plain move list. On Chess.com: Share, then PGN. On Lichess: Share &amp; export, then PGN.</p>
-      <textarea id="pgnInput" spellcheck="false" aria-label="PGN" placeholder="[White &quot;You&quot;]&#10;[Black &quot;Opponent&quot;]&#10;1. d4 d5 2. Bf4 c6 3. e3 Nf6 …"></textarea>
-      <p class="err" id="pgnErr" hidden></p>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-small" id="pgnSample">Load Morphy's Opera Game</button>
-      <span class="sp"></span>
-      <button class="btn" id="pgnCancel">Cancel</button>
-      <button class="btn btn-brass" id="pgnGo">Review</button>
-    </div>
-  </div>
-</div>
 <div class="modal-back" id="exportModal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="expTitle">
     <h2 id="expTitle" style="font-family:var(--f-display);font-weight:600;color:var(--brass-hi);margin:0;font-size:22px">PGN</h2>
@@ -1687,7 +1761,7 @@ let boardPx = 400;
 function layoutBoard() {
   const vw = document.documentElement.clientWidth, vh = window.innerHeight;
   const wide = vw >= 980;
-  const evw = S.mode === 'review' ? (wide ? 34 : vw < 600 ? 18 : 28) : 0;   // the eval bar and its gap (none on phones)
+  const evw = hasEvalBar(S.mode) ? (wide ? 34 : vw < 600 ? 18 : 28) : 0;   // the eval bar and its gap (none on phones)
   let size;
   // beside the board: the menu on the left (--navw), the panel (360) and the gap (26); above and below it the player bars
   const navw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--navw')) || 0;
@@ -1826,19 +1900,21 @@ function repositionAll() { pieceEls.forEach(p => { p.el.style.transition = 'none
 
 function renderHighlights() {
   const layer = $('#hlLayer'); let h = '';
-  const L = S.line; if (!L) { layer.innerHTML = ''; return; }
-  const v = S.view; const mv = v > 0 ? L.moves[v - 1] : null;
-  const rv = S.mode === 'review' && S.review ? S.review : null;
-  const cls = rv && v > 0 ? rv.cls[v - 1] : null;
   const box = (sq, klass, extra = '') => { const [c, r] = sqToCR(sq); return `<div class="hl ${klass}" style="--c:${c};--r:${r};${extra}"></div>`; };
+  if (S.mode === 'edit') { layer.innerHTML = EDIT.sel ? box(EDIT.sel, 'hl-sel') : ''; renderArrows(); return; }
+  const L = S.line; if (!L) { layer.innerHTML = ''; renderArrows(); return; }
+  const v = S.view; const own = EX.active ? EX.moves[EX.moves.length - 1] : null;   // your own move in a review
+  const mv = own || (v > 0 ? L.moves[v - 1] : null);
+  const rv = S.mode === 'review' && S.review && !own ? S.review : null;
+  const cls = rv && v > 0 ? rv.cls[v - 1] : null;
   if (mv) {
     if (cls) { h += box(mv.from, 'hl-cls', `--cc:var(--c-${cls})`) + box(mv.to, 'hl-cls', `--cc:var(--c-${cls})`); }
     else h += box(mv.from, 'hl-last') + box(mv.to, 'hl-last');
   }
   if (S.premoves.length && v === liveIndex()) { const pre = new Set(); for (const pm of S.premoves) { pre.add(pm.from); pre.add(pm.to); } for (const sq of pre) h += box(sq, 'hl-pre'); }
-  const pos = chessAt(L.fens[v]);
+  const fen = boardFen(); const pos = chessAt(fen);
   if (pos.in_check()) {
-    const turn = pos.turn(); const map = boardMap(L.fens[v]);
+    const turn = pos.turn(); const map = boardMap(fen);
     const ksq = Object.keys(map).find(s => map[s] === turn + 'K'); if (ksq) h += box(ksq, 'hl-check');
   }
   if (S.sel) {
@@ -1847,18 +1923,21 @@ function renderHighlights() {
   }
   if (dragState && dragState.hover && dragState.hover !== dragState.from) h += box(dragState.hover, 'hl-hover');
   h += trainerHighlights(box);
+  if (marksHere()) for (const m of MK.squares) h += box(m.sq, 'hl-mark', `--mk:${MK_COLORS[m.col]}`);
   if (cls && mv) { const [c, r] = sqToCR(mv.to); h += `<div class="badge" style="--c:${c};--r:${r};--cc:var(--c-${cls})" title="${CLS[cls].label}">${CLS[cls].sym}</div>`; }
   layer.innerHTML = h;
   renderArrows();
 }
 function renderArrows() {
   const svg = $('#arrowLayer'); let out = '';
-  const rv = S.mode === 'review' && S.review ? S.review : null;
-  if (rv && S.view > 0) {
+  const rv = S.mode === 'review' && S.review && !EX.active ? S.review : null;
+  if (S.mode === 'analysis' || EX.active) out += lookArrow();
+  else if (rv && S.view > 0) {
     const i = S.view - 1; const cls = rv.cls[i]; const best = rv.best[i];
     if (best && cls && !['best', 'forced', 'great', 'brilliant'].includes(cls)) out += arrowPath(best.slice(0, 2), best.slice(2, 4), 'var(--c-best)');
   }
   out += trainerArrows();
+  if (marksHere()) for (const a of MK.arrows) out += arrowPath(a.from, a.to, MK_COLORS[a.col]);
   svg.innerHTML = out;
 }
 function arrowPath(from, to, color) {
@@ -1964,7 +2043,7 @@ function refreshSelection() {
 }
 function pieceCodeAt(sq, pre) {
   if (pre) return premoveMap()[sq] || null;
-  const p = S.chess.get(sq); return p ? p.color + p.type.toUpperCase() : null;
+  const p = inputChess().get(sq); return p ? p.color + p.type.toUpperCase() : null;
 }
 function premoveNote() {
   const n = S.premoves.length; const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
@@ -1975,6 +2054,7 @@ function premoveNote() {
 let dragState = null;
 let lastPointerType = 'mouse';
 function canUserMove() {
+  if (freeBoard()) { if (S.promoPending || !S.line) return false; const c = inputChess(); return !!c && !c.game_over(); }
   if (!S.chess || S.promoPending || S.view !== liveIndex()) return false;
   if (S.mode === 'play') return !!S.game && S.chess.turn() === S.game.playerColor && !S.thinking;
   if (S.mode === 'puzzle') return T.kind === 'puzzle' && PZ.state === 'solving' && S.chess.turn() === PZ.color;
@@ -1988,18 +2068,21 @@ function sqFromEvent(e) {
   if (c < 0 || c > 7 || r < 0 || r > 7) return null; return crToSq(c, r);
 }
 function selectSq(sq) {
-  S.sel = sq; S.legal = !sq ? [] : canUserMove() ? S.chess.moves({ square: sq, verbose: true }) : canPremove() ? premoveDests(sq) : [];
+  S.sel = sq; S.legal = !sq ? [] : canUserMove() ? inputChess().moves({ square: sq, verbose: true }) : canPremove() ? premoveDests(sq) : [];
   renderHighlights();
 }
 function onPointerDown(e) {
   lastPointerType = e.pointerType || 'mouse';
+  if (S.mode === 'edit') { editPointer(e); return; }
+  if (e.button === 2) { markStart(e); return; }
   if (e.button !== undefined && e.button !== 0) return;
+  if (marksHere()) clearMarks();                   // a left click on the board clears the arrows and marks
   const live = canUserMove(), pre = !live && canPremove();
   if (!live && !pre) { if (S.sel) selectSq(null); return; }
   const sq = sqFromEvent(e); if (!sq) return;
   if (S.sel && S.legal.some(m => m.to === sq)) { tryUserMove(S.sel, sq); return; }
   const code = pieceCodeAt(sq, pre);
-  if (code && code[0] === (pre ? myColor() : S.chess.turn())) {
+  if (code && code[0] === (pre ? myColor() : inputChess().turn())) {
     const wasSel = S.sel === sq; selectSq(sq);
     const p = pieceEls.find(x => x.sq === sq);
     dragState = { from: sq, code, startX: e.clientX, startY: e.clientY, active: false, el: p ? p.el : null, ghost: null, wasSel, hover: null, pid: e.pointerId };
@@ -2021,6 +2104,7 @@ function onPointerMove(e) {
   const hv = sqFromEvent(e); if (hv !== dragState.hover) { dragState.hover = hv; renderHighlights(); }
 }
 function onPointerUp(e) {
+  if (e.button === 2) { markEnd(e); return; }
   if (!dragState) return; const ds = dragState; dragState = null;
   try { boardEl().releasePointerCapture(ds.pid); } catch (_) {}
   if (ds.ghost) ds.ghost.remove(); if (ds.el) ds.el.classList.remove('lift');
@@ -2040,7 +2124,7 @@ function tryUserMove(from, to, dragged) {
   if (pre) queuePremove(from, to); else commitUserMove(from, to);
 }
 function openPromo(from, to, pre = false) {
-  S.promoPending = true; const el = $('#promo'); const color = pre ? myColor() : S.chess.turn(); const [c, r] = sqToCR(to);
+  S.promoPending = true; const el = $('#promo'); const color = pre ? myColor() : inputChess().turn(); const [c, r] = sqToCR(to);
   const top = r === 0; el.style.left = (c * 12.5) + '%'; el.style.top = top ? '0' : 'auto'; el.style.bottom = top ? 'auto' : '0';
   el.innerHTML = ['q', 'r', 'b', 'n'].map(p => `<button data-p="${p}" aria-label="Promote to ${({ q: 'queen', r: 'rook', b: 'bishop', n: 'knight' })[p]}">${pieceSVG(color + p.toUpperCase())}</button>`).join('');
   if (!top) el.style.flexDirection = 'column-reverse'; else el.style.flexDirection = 'column';
@@ -2054,6 +2138,7 @@ function openPromo(from, to, pre = false) {
 }
 function closePromo() { $('#promo').hidden = true; S.promoPending = false; }
 function commitUserMove(from, to, promo) {
+  if (freeBoard()) { freeMove(from, to, promo); return; }
   const mv = S.chess.move({ from, to, promotion: promo || 'q' }); if (!mv) return;
   S.sel = null; S.legal = [];
   if (S.mode === 'puzzle') puzzleMove(mv);
@@ -2372,8 +2457,11 @@ function setMode(m) {
   if (m !== 'review') apPause();
   if (m !== 'review' && prev === 'review') deepStop(true);
   if (m !== 'play' && m !== 'online') S.premoves = [];
+  if (m !== 'review') exploreExit();
   $('#setupCard').hidden = m !== 'idle' && m !== 'over';   // after a game it waits under "New game"
-  $('#reviewCta').hidden = m !== 'idle';
+  $('#importPanel').hidden = m !== 'import';
+  $('#analysisPanel').hidden = m !== 'analysis';
+  $('#editPanel').hidden = m !== 'edit';
   $('#playActions').hidden = m !== 'play';
   $('#pausedActions').hidden = m !== 'paused';
   $('#overActions').hidden = m !== 'over';
@@ -2381,11 +2469,11 @@ function setMode(m) {
   $('#puzzlePanel').hidden = m !== 'puzzle';
   $('#lessonPanel').hidden = m !== 'lesson';
   $('#onlinePanel').hidden = m !== 'online';
-  const tab = m === 'online' || (m === 'review' && S.line && S.line.source === 'online') ? 'btnOnline' : m === 'puzzle' ? 'btnPuzzles' : m === 'lesson' ? 'btnOpenings' : m === 'review' && S.line && S.line.source === 'pgn' ? 'btnImport' : 'btnNew';
+  const tab = m === 'online' ? 'btnOnline' : m === 'puzzle' ? 'btnPuzzles' : m === 'lesson' ? 'btnOpenings' : ['review', 'import', 'analysis', 'edit'].includes(m) ? 'btnImport' : 'btnNew';
   document.querySelectorAll('.tab').forEach(t => { if (t.id === tab) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current'); });
-  $('#evalBar').hidden = m !== 'review';
+  $('#evalBar').hidden = !hasEvalBar(m);
   $('#overActions').querySelector('#btnRematch').hidden = !(S.line && S.line.source === 'play');
-  if ((prev === 'review') !== (m === 'review')) layoutBoard();
+  if (hasEvalBar(prev) !== hasEvalBar(m)) layoutBoard();
   renderSideTabs(prev !== m);
   disarm();
   if (window.WP_ONLINE) window.WP_ONLINE.qbar();   // the matchmaking bar shows everywhere but the lobby
@@ -2395,12 +2483,15 @@ function setMode(m) {
    belong to another tab (data-tab-off). With a single tab there is no tab row: the section's heading is the title.
    A new page starts on its first tab; within a page, the tab you picked stays. */
 const SIDE = { tab: null, ids: '' };
-const SIDE_SECTIONS = ['setupCard', 'reviewCta', 'puzzlePanel', 'lessonPanel', 'reviewPanel', 'sheet', 'onlinePanel'];
+const SIDE_SECTIONS = ['setupCard', 'importPanel', 'puzzlePanel', 'lessonPanel', 'reviewPanel', 'analysisPanel', 'editPanel', 'sheet', 'onlinePanel'];
 function sideTabs() {
   const m = S.mode; const moves = { id: 'moves', label: 'Moves', els: ['sheet'] };
-  if (m === 'idle') return [{ id: 'new', label: 'Play Stockfish', els: ['setupCard'] }, { id: 'rv', label: 'Review a game', els: ['reviewCta'] }];
+  if (m === 'idle') return [{ id: 'new', label: 'Play Stockfish', els: ['setupCard'] }];
+  if (m === 'import') return [{ id: 'import', label: 'Review a game', els: ['importPanel'] }];
+  if (m === 'analysis') return [{ id: 'analysis', label: 'Analysis', els: ['analysisPanel', 'sheet'] }];
+  if (m === 'edit') return [{ id: 'edit', label: 'Set up a position', els: ['editPanel'] }];
   if (m === 'over') return [moves, { id: 'new', label: 'New game', els: ['setupCard'] }];
-  if (m === 'review') return [{ id: 'review', label: 'Review', els: ['reviewPanel'] }, moves];
+  if (m === 'review') return [{ id: 'review', label: 'Review', els: ['reviewPanel', 'sheet'] }];   // the note and the moves together
   if (m === 'puzzle') return [{ id: 'puzzle', label: 'Puzzle', els: ['puzzlePanel'] }, moves];
   if (m === 'lesson') return [{ id: 'lesson', label: 'Lesson', els: ['lessonPanel'] }, moves];
   // an online game keeps its moves, offers and messages together, like chess.com, so an offer can't hide behind a tab
@@ -2442,12 +2533,13 @@ function materialCaps(fen) {
   return { caps, diff: mat.w - mat.b };
 }
 function renderPlates() {
-  const L = S.line; const fen = L ? L.fens[S.view] : START_FEN;
-  const { caps, diff } = materialCaps(fen);
+  const L = S.line; const fen = boardFen();
+  const { caps, diff } = S.mode === 'edit' ? { caps: { w: [], b: [] }, diff: 0 } : materialCaps(fen);
   const top = S.orientation === 'w' ? 'b' : 'w', bot = S.orientation;
   const nameOf = (c) => {
     if (L) return { n: L.names[c], s: L.subs[c] };
     if (S.mode === 'online' && window.WP_ONLINE) return window.WP_ONLINE.plate(c);
+    if (['lesson', 'puzzle', 'import', 'edit'].includes(S.mode)) return { n: c === 'w' ? 'White' : 'Black', s: '' };
     const pc = S.settings.color === 'b' ? 'b' : 'w';
     const op = curPersona();
     return c === pc ? { n: 'You', s: c === 'w' ? 'White' : 'Black' } : { n: botName(op), s: op ? `Bot · ≈${S.settings.elo}` : eloLabel(S.settings.elo) };
@@ -2473,7 +2565,7 @@ function renderSheet() {
   const moves = L ? L.moves : [];
   const startFen = L ? L.startFen : START_FEN; const parts = startFen.split(' ');
   const startNo = +parts[5] || 1; const off = parts[1] === 'b' ? 1 : 0;
-  const rows = Math.max(Math.ceil((moves.length + off) / 2), 8);
+  const rows = Math.ceil((moves.length + off) / 2);   // only the rows that have moves, like chess.com
   const rv = S.mode === 'review' ? S.review : null;
   for (let r = 0; r < rows; r++) {
     let cells = '';
@@ -2486,10 +2578,11 @@ function renderSheet() {
     }
     html += `<div class="mrow"><span class="mno">${startNo + r}</span>${cells}</div>`;
   }
-  list.innerHTML = html;
+  list.innerHTML = html || '<p class="mempty">No moves yet.</p>';
   const cur = list.querySelector('.mv.cur');
   if (cur) { const lt = list.getBoundingClientRect(), ct = cur.getBoundingClientRect(); if (ct.bottom > lt.bottom - 4 || ct.top < lt.top + 4) list.scrollTop += (ct.top - lt.top) - lt.height / 2 + ct.height / 2; }
   else if (!moves.length) list.scrollTop = 0;
+  if (L && L.source === 'analysis' && S.mode === 'analysis') { $('#sheetTc').textContent = 'Analysis'; $('#sheetResult').textContent = moves.length ? 'Your line' : 'No moves yet'; return; }
   if (L && L.source === 'puzzle') $('#sheetTc').textContent = 'Puzzle'; else if (L && L.source === 'lesson') $('#sheetTc').textContent = L.headers.Event || 'Opening';
   if (L && (L.source === 'puzzle' || L.source === 'lesson')) { $('#sheetResult').textContent = L.source === 'puzzle' ? 'Puzzle line' : 'Opening line'; return; }
   $('#sheetResult').innerHTML = L && L.result !== '*' ? `<b>${L.result.replace('1/2-1/2', '½–½').replace('-', '–')}</b>&nbsp; ${esc(resultSentence())}` : L && moves.length ? 'Game in progress' : 'Game not started';
@@ -2511,8 +2604,8 @@ function renderBanner() {
 }
 function renderNav() {
   const n = liveIndex();
-  $('#navFirst').disabled = $('#navPrev').disabled = S.view <= 0;
-  $('#navNext').disabled = $('#navLast').disabled = S.view >= n;
+  $('#navFirst').disabled = S.view <= 0 && !EX.active; $('#navPrev').disabled = S.view <= 0 && !EX.active;
+  $('#navNext').disabled = S.view >= n || EX.active; $('#navLast').disabled = S.view >= n && !EX.active;
   const note = $('#viewNote');
   if (S.premoves.length && S.view === n && (S.mode === 'play' || S.mode === 'online')) note.textContent = premoveNote();
   else if (S.mode === 'play' && S.view < n) note.textContent = coarse() ? 'Looking back. Tap ▶| to return to the game.' : 'Looking back. Press → or End to return to the game.';
@@ -2527,16 +2620,22 @@ function renderNav() {
 function renderAll() {
   renderPlates(); renderSheet(); renderHighlights(); renderBanner(); renderNav(); updateClock();
   if (S.mode === 'review') renderReview();
+  if (S.mode === 'analysis') { renderAnalysis(); renderEvalBar(); }
+  if (S.mode === 'edit') renderEditor();
   if (S.mode === 'puzzle' || S.mode === 'lesson') renderTrainer();
   if (S.mode === 'online' && window.WP_ONLINE) window.WP_ONLINE.render();
   boardEl().classList.toggle('can-move', canUserMove() || canPremove());
 }
 function goTo(ply, animate = true) {
-  if (!S.line) return; ply = clamp(ply, 0, liveIndex()); if (ply === S.view) return;
+  if (!S.line) return; ply = clamp(ply, 0, liveIndex());
+  // Stepping through the game leaves your own moves behind; the move you were at shows again
+  if (EX.active) { exploreExit(); if (ply === S.view) { S.sel = null; S.legal = []; renderPieces(S.line.fens[ply], animate); renderAll(); return; } }
+  if (ply === S.view) return;
   if (!AP.own && (AP.on || AP.stop)) apPause();   // stepping by hand takes over from Play through
   S.view = ply; S.sel = null; S.legal = []; closePromo(); if (ply !== liveIndex()) S.premoves = [];
   renderPieces(S.line.fens[ply], animate); renderAll();
-  if ((S.mode === 'review' || S.mode === 'lesson') && ply > 0) { const mv = S.line.moves[ply - 1]; if (mv.captured) Snd.clack(.5, 1300); else Snd.clack(.4, 1600); }
+  if ((S.mode === 'review' || S.mode === 'lesson' || S.mode === 'analysis') && ply > 0) { const mv = S.line.moves[ply - 1]; if (mv.captured) Snd.clack(.5, 1300); else Snd.clack(.4, 1600); }
+  if (S.mode === 'analysis') anLook();
 }
 function flip() { S.orientation = S.orientation === 'w' ? 'b' : 'w'; renderCoords(); repositionAll(); drawBoardCanvas(); renderAll(); }
 function announce(t) { const l = $('#live'); l.textContent = ''; setTimeout(() => { l.textContent = t; }, 30); }
@@ -2700,8 +2799,9 @@ function renderReview() {
   renderDeep();
   // accuracy
   $('#accRow').innerHTML = ['w', 'b'].map(c => {
-    const a = accuracyOf(c);
-    return `<div class="acc-side"><span class="acc-name">${pieceSVG(c + 'K')}<span>${esc(L.names[c])}</span></span><span class="acc-num">${a == null ? '–' : a.toFixed(1)}</span><span class="acc-lbl">accuracy</span></div>`;
+    // only once Stockfish has been through the whole game, like chess.com: a figure from part of it would mislead
+    const a = R.done ? accuracyOf(c) : null; const num = !R.done ? '…' : a == null ? '–' : a.toFixed(1);
+    return `<div class="acc-side"><span class="acc-name">${pieceSVG(c + 'K')}<span>${esc(L.names[c])}</span></span><span class="acc-num">${num}</span><span class="acc-lbl">accuracy</span></div>`;
   }).join('');
   // counts
   const cnt = { w: {}, b: {} }; L.moves.forEach((m, i) => { const c = R.cls[i]; if (c) cnt[m.color][c] = (cnt[m.color][c] || 0) + 1; });
@@ -2722,7 +2822,7 @@ function depthText(R) {
 }
 function keyMoments() { const R = S.review; if (!R) return []; const out = []; R.cls.forEach((c, i) => { if (c === 'mistake' || c === 'blunder' || c === 'inaccuracy') out.push(i + 1); }); return out; }
 function renderEvalBar() {
-  const R = S.review; const ev = R.evals[S.view]; const bar = $('#evalBar');
+  const ev = viewEval(); const bar = $('#evalBar');
   const pct = ev ? whiteWin(ev) : 50;
   bar.classList.toggle('flip', S.orientation === 'b');
   $('#ebFill').style.height = pct.toFixed(1) + '%';
@@ -2754,13 +2854,14 @@ function renderGraph() {
 function renderAnnot() {
   const R = S.review, L = S.line; const el = $('#annot'); const v = S.view;
   el.classList.remove('ap-stop');
+  if (EX.active) { exploreAnnot(el); return; }
   const ev = R.evals[v]; const evTxt = fmtEval(ev); const whiteish = ev && whiteWin(ev) >= 50;
   const evChip = `<span class="annot-eval${whiteish ? ' wht' : ''}">${evTxt}</span>`;
   if (v === 0) {
     const keys = keyMoments().length;
     el.style.removeProperty('--cc');
     el.innerHTML = `<div class="annot-top"><span class="annot-badge" style="--cc:var(--ink-soft)">♙</span><span class="annot-title">Starting position</span>${evChip}</div>
-      <p class="annot-body">${R.done ? `${coarse() ? 'Step through with the ▶ button, tap the graph' : 'Step through with →, click the graph'} or pick a move under Moves, or press <b>Play through</b> to watch the game and stop at the moments that matter. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
+      <p class="annot-body">${R.done ? `${coarse() ? 'Step through with the ▶ button, tap the graph' : 'Step through with →, click the graph'} or pick a move in the list, or press <b>Play through</b> to watch the game and stop at the moments that matter. You can also move the pieces yourself to try other moves. ${keys ? `There ${keys === 1 ? 'is 1 moment' : `are ${keys} moments`} worth a closer look.` : 'A clean game: no inaccuracies at all.'}` : 'Stockfish is working through the game. You can step through the moves, or press Play through, while it runs.'}</p>`;
     return;
   }
   const i = v - 1; const mv = L.moves[i]; const cls = R.cls[i];
@@ -2818,6 +2919,7 @@ function apStopCount() { const R = S.review; return R ? R.cls.filter(c => AP_STO
 function apMove(ply) { AP.own = true; try { goTo(ply); } finally { AP.own = false; } }
 function apStart() {
   if (S.mode !== 'review' || !S.line || !S.review) return;
+  if (EX.active) { exploreExit(); renderPieces(S.line.fens[S.view], false); renderAll(); }
   if (S.view >= liveIndex()) apMove(0);
   AP.on = true; AP.stop = 0; AP.waiting = false;
   clearTimeout(AP.timer); AP.timer = setTimeout(apStep, 350);
@@ -2861,7 +2963,9 @@ function renderAutoPlay() {
   const label = { pause: 'Pause', continue: 'Continue', again: 'Play again', here: 'Play from here', play: 'Play through' }[state];
   const icon = AP_ICONS[state === 'pause' ? 'pause' : state === 'again' ? 'again' : 'play'];
   btn.innerHTML = `${icon}<span>${label}</span>`;
-  tool.innerHTML = `${icon}<span>${state === 'pause' ? 'Pause' : state === 'continue' ? 'Continue' : 'Play'}</span>`;
+  // Under the board only an icon, so it can't be mistaken for the menu's Play; "Continue" keeps its word at a stop
+  tool.innerHTML = state === 'continue' ? `${icon}<span>Continue</span>` : icon; tool.classList.toggle('ap-text', state === 'continue');
+  tool.title = `${label} (Space)`;
   tool.setAttribute('aria-label', label); btn.setAttribute('aria-pressed', String(AP.on)); tool.setAttribute('aria-pressed', String(AP.on));
   document.querySelectorAll('#apSpeed .ap-sp').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.sp === apSpeed())));
   const n = apStopCount(); const graded = R.cls.filter(Boolean).length; const total = S.line.moves.length;
@@ -2873,16 +2977,289 @@ function renderAutoPlay() {
   else note = n ? `Replays the game and stops at the ${n === 1 ? 'one moment' : `${n} moments`} that matter: brilliant and great moves, mistakes and blunders.` : 'Replays the game. Nothing in it is brilliant, great, a mistake or a blunder, so it plays straight through.';
   $('#apNote').innerHTML = note;
   // under the board too, for phones, where the review panel sits below the board
-  $('#viewNote').textContent = AP.on ? (AP.waiting ? 'Waiting for Stockfish to grade this move…' : 'Playing through the game…') : AP.stop ? 'Paused at a key moment. Press Continue to go on.' : '';
+  $('#viewNote').textContent = AP.on ? (AP.waiting ? 'Waiting for Stockfish to grade this move…' : 'Playing through the game…') : AP.stop ? 'Paused at a key moment. Press Continue to go on.'
+    : EX.active ? (coarse() ? 'Your own moves. ◀ takes one back.' : 'Your own moves. ← takes one back.') : '';
 }
 function exitReview() {
   apPause();
   if (S.review) S.review.token++;
   for (const e of ENG.pool) e.cancelAll();
   if (S.line && S.line.source === 'online' && window.WP_ONLINE) { window.WP_ONLINE.open(); return; }
+  if (S.line && S.line.source === 'analysis') { S.review = null; setMode('analysis'); S.view = liveIndex(); renderCoords(); renderPieces(S.line.fens[S.view], false); drawBoardCanvas(); renderAll(); anLook(); save(); return; }
+  if (S.line && S.line.source === 'pgn') { openReviewPage(); return; }
   if (S.line && S.line.source === 'play' && S.game) { setMode('over'); S.orientation = S.game.playerColor; }
   else { S.line = null; S.game = null; S.chess = null; S.review = null; setMode('idle'); S.orientation = S.settings.color === 'b' ? 'b' : 'w'; }
   S.view = liveIndex(); renderCoords(); renderPieces(S.line ? S.line.fens[S.view] : START_FEN, false); drawBoardCanvas(); renderAll(); save();
+}
+
+/* =====================================================================
+   Your own moves. In a review you can move the pieces yourself: Stockfish
+   answers, and the game stays as it was ("exploring", like chess.com).
+   On the analysis board the moves you play are the line, and Stockfish
+   looks at every position you reach. The position editor sets one up.
+   ===================================================================== */
+const EX = { active: false, base: 0, moves: [], fens: [], peek: null };
+const AN = { cache: new Map(), token: 0 };          // Stockfish's view of positions, by FEN
+const AN_DEPTH = 18, AN_MS = 2000, AN_LINES = 3;
+const hasEvalBar = (m) => m === 'review' || m === 'analysis';
+const freeBoard = () => S.mode === 'review' || S.mode === 'analysis';
+const PENCIL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.2V21h3.8l11-11-3.8-3.8zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.8 3.8z"/></svg>';
+// The position on the board right now
+function boardFen() {
+  if (S.mode === 'edit') return editFen();
+  if (EX.active) return EX.fens[EX.fens.length - 1];
+  return S.line ? S.line.fens[S.view] : START_FEN;
+}
+// The rules for a move made by hand: in a game the game itself, in a review or on the analysis board the position shown
+function inputChess() {
+  if (!freeBoard()) return S.chess;
+  const fen = boardFen();
+  if (!EX.peek || EX.peek.fen !== fen) EX.peek = { fen, c: chessAt(fen) };
+  return EX.peek.c;
+}
+function moveSound(c, mv) { if (c.in_check()) Snd.check(); else if (mv.captured) Snd.capture(); else Snd.move(); }
+function freeMove(from, to, promo) {
+  const c = inputChess(); const mv = c.move({ from, to, promotion: promo || 'q' }); EX.peek = null; if (!mv) return;
+  mv.uci = mv.from + mv.to + (mv.promotion || '');
+  S.sel = null; S.legal = []; const L = S.line;
+  // the move that comes next in the line anyway: just step on
+  if (!EX.active && S.view < L.moves.length && L.moves[S.view].uci === mv.uci) { goTo(S.view + 1); return; }
+  if (S.mode === 'analysis') {
+    L.moves.length = S.view; L.fens.length = S.view + 1;   // a different move here replaces the rest of the line
+    L.moves.push(mv); L.fens.push(c.fen()); S.view = L.moves.length; L.result = '*';
+    moveSound(c, mv); renderPieces(boardFen()); renderAll(); anLook(); save(); return;
+  }
+  if (!EX.active) { apPause(); Object.assign(EX, { active: true, base: S.view, moves: [], fens: [L.fens[S.view]] }); }
+  EX.moves.push(mv); EX.fens.push(c.fen());
+  moveSound(c, mv); renderPieces(boardFen()); renderAll(); anLook();
+}
+// Take back the last of your own moves (←). With none left, the board is back at the game.
+function exploreBack() {
+  if (!EX.active) return false;
+  EX.moves.pop(); EX.fens.pop(); if (!EX.moves.length) exploreExit();
+  S.sel = null; S.legal = []; renderPieces(boardFen()); renderAll(); anLook(); return true;
+}
+function exploreExit() { EX.active = false; EX.moves = []; EX.fens = []; EX.peek = null; }
+function stepBack() { if (!exploreBack()) goTo(S.view - 1); }
+function stepOn() { if (!EX.active) goTo(S.view + 1); }
+
+// ---- Stockfish's view of the position on the board (the analysis board, and your own moves in a review)
+function anEv(fen, x) { const stm = fen.split(' ')[1] === 'w' ? 1 : -1; return x.mate != null ? { mate: x.mate * stm } : { cp: Math.round((x.cp || 0) * EVAL_SCALE) * stm }; }
+function anTerminal(fen) { const c = chessAt(fen); if (c.in_checkmate()) return { mated: c.turn() }; if (c.in_stalemate() || c.insufficient_material()) return { cp: 0, draw: true }; return null; }
+async function anLook() {
+  if (!(S.mode === 'analysis' || (S.mode === 'review' && EX.active))) return;
+  const fen = boardFen(); const token = ++AN.token; const analysis = S.mode === 'analysis';
+  renderLook();
+  const have = AN.cache.get(fen); if (have && have.full) return;
+  const term = anTerminal(fen);
+  if (term) { AN.cache.set(fen, { ev: term, lines: [], best: null, depth: 0, full: true }); renderLook(); return; }
+  await ENG.ready; if (!ENG.main || token !== AN.token) return;
+  // On the analysis board nothing else uses Stockfish, so the search of a position you already left stops.
+  // In a review your position waits its turn behind the review's own work.
+  if (analysis) ENG.main.cancelAll();
+  const res = await ENG.main.search({ fen, depth: AN_DEPTH, movetime: AN_MS, skill: 20, multipv: AN_LINES });
+  if (!res || !res.info) return;
+  const lines = (res.lines || []).filter(x => x && x.pv && x.pv.length).map(x => ({ ev: anEv(fen, x), pv: x.pv }));
+  if (AN.cache.size > 400) AN.cache.delete(AN.cache.keys().next().value);
+  // a search that was stopped because you moved on is kept, but looked at again when you come back
+  AN.cache.set(fen, { ev: anEv(fen, res.info), lines, best: res.bestmove, depth: res.info.depth || 0, full: !(analysis && token !== AN.token) });
+  if (fen === boardFen()) renderLook();
+}
+function renderLook() {
+  if (S.mode === 'analysis') { renderAnalysis(); renderEvalBar(); renderArrows(); }
+  else if (S.mode === 'review' && S.review) { renderAnnot(); renderEvalBar(); renderArrows(); }
+}
+function viewEval() {
+  if (S.mode === 'analysis' || EX.active) { const a = AN.cache.get(boardFen()); return a ? a.ev : null; }
+  return S.review ? S.review.evals[S.view] : null;
+}
+function lookArrow() { const a = AN.cache.get(boardFen()); return a && a.best ? arrowPath(a.best.slice(0, 2), a.best.slice(2, 4), 'var(--c-best)') : ''; }
+function lookText(fen, a) {
+  const term = anTerminal(fen);
+  if (term) return term.mated ? `Checkmate. ${term.mated === 'w' ? 'Black' : 'White'} wins.` : 'A draw: stalemate, or too little material to mate.';
+  if (!a || !a.lines.length) return '<span class="spinner"></span>Stockfish is looking at this position…';
+  return null;
+}
+// The note in a review while you try your own moves
+function exploreAnnot(el) {
+  const L = S.line; const fen = boardFen(); const a = AN.cache.get(fen); const ev = a ? a.ev : null;
+  el.style.removeProperty('--cc');
+  const from = EX.base === 0 ? 'From the starting position' : `After ${moveLabel(EX.base - 1)} ${sanHTML(L.moves[EX.base - 1].san)}`;
+  const line = pvToSan(L.fens[EX.base], EX.moves.map(m => m.uci), 99);
+  const game = EX.base < L.moves.length ? `<p class="annot-line">In the game: ${moveLabel(EX.base)} <b>${sanHTML(L.moves[EX.base].san)}</b></p>` : '';
+  const look = lookText(fen, a) || `Stockfish’s best line here: ${pvToSan(fen, a.lines[0].pv, 6)}`;
+  el.innerHTML = `<div class="annot-top"><span class="annot-badge" style="--cc:var(--brass-lo, #8a5733)">${PENCIL_SVG}</span><span class="annot-title">Your own moves</span><span class="annot-eval${ev && whiteWin(ev) >= 50 ? ' wht' : ''}">${fmtEval(ev)}</span></div>
+    <p class="annot-body">${from}: ${line}</p><p class="annot-line">${look}</p>${game}
+    <div class="actions ex-actions"><button class="btn btn-small" data-ex="undo">Take back</button><button class="btn btn-small" data-ex="game">Back to the game</button></div>`;
+}
+
+// ---- the analysis board
+function leaveBoard() {
+  apPause(); trainerStop(); clearTimers();
+  if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll());
+  S.engineToken++; if (ENG.main) ENG.main.cancelAll();
+  exploreExit();
+  S.game = null; S.chess = null; S.line = null; S.review = null; S.view = 0;
+  S.premoves = []; S.sel = null; S.legal = []; S.bannerOpen = false; closePromo();
+}
+function openAnalysis(fen = START_FEN, orientation) {
+  leaveBoard();
+  S.line = newLine(fen, { w: 'White', b: 'Black' }, { w: '', b: '' }, { source: 'analysis' });
+  S.chess = chessAt(fen); S.orientation = orientation || 'w';
+  $('#anFenForm').hidden = true; $('#anErr').hidden = true;
+  setMode('analysis'); renderCoords(); drawBoardCanvas(); renderPieces(fen, false); renderAll(); anLook(); save();
+}
+function renderAnalysis() {
+  if (S.mode !== 'analysis' || !S.line) return;
+  const fen = boardFen(); const a = AN.cache.get(fen);
+  const wait = lookText(fen, a);
+  const lines = wait ? `<p class="an-empty">${wait}</p>` : `<div class="an-lines">${a.lines.map((x, k) => `<button class="an-line" data-an-line="${k}" title="Play ${esc(uciToSan(fen, x.pv[0]) || '')}"><span class="annot-eval${whiteWin(x.ev) >= 50 ? ' wht' : ''}">${fmtEval(x.ev)}</span><span class="an-pv">${pvToSan(fen, x.pv, 8)}</span></button>`).join('')}</div>`;
+  const depth = a && a.depth ? `<p class="fine an-depth">Stockfish ${SF_VERSION} · depth ${a.depth}</p>` : '';
+  const html = `<p class="an-turn">${fen.split(' ')[1] === 'w' ? 'White' : 'Black'} to move</p>${lines}${depth}`;
+  const el = $('#anLook'); if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  $('#anReview').hidden = !S.line.moves.length;
+}
+// What is wrong with a position, in words, or null when it can be played from
+function positionProblem(fen) {
+  const v = new Chess().validate_fen(fen); if (!v.valid) return `That is not a FEN Woodpusher can read: ${v.error}`;
+  const map = boardMap(fen); const all = Object.entries(map); const n = (code) => all.filter(([, c]) => c === code).length;
+  if (n('wK') !== 1 || n('bK') !== 1) return 'Each side needs exactly one king.';
+  if (all.some(([sq, c]) => c[1] === 'P' && (sq[1] === '1' || sq[1] === '8'))) return 'Pawns can’t stand on the first or the last rank.';
+  if (all.filter(([, c]) => c[0] === 'w').length > 16 || all.filter(([, c]) => c[0] === 'b').length > 16) return 'One side has more than 16 pieces.';
+  const parts = fen.split(' '); const other = parts[1] === 'w' ? 'b' : 'w';
+  const swapped = [parts[0], other, '-', '-', '0', '1'].join(' ');
+  try { if (new Chess(swapped).in_check()) return `${other === 'w' ? 'White' : 'Black'} is in check, but it’s ${parts[1] === 'w' ? 'White' : 'Black'}’s move.`; } catch (e) {}
+  return null;
+}
+function copyText(text, what) {
+  const fallback = () => { $('#expTitle').textContent = what; $('#exportText').value = text; $('#exportModal').hidden = false; $('#exportText').focus(); $('#exportText').select(); };
+  try { navigator.clipboard.writeText(text).then(() => toast(`${what} copied to the clipboard.`), fallback); } catch (e) { fallback(); }
+}
+
+// ---- the position editor
+const EDIT = { map: {}, turn: 'w', tool: 'move', sel: null, back: null };
+const EDIT_PIECES = ['wK', 'wQ', 'wR', 'wB', 'wN', 'wP', 'bK', 'bQ', 'bR', 'bB', 'bN', 'bP'];
+const HAND_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.5 3.5H13v5h5V8l3.5 3.5L18 15v-2.5h-5v5h2.5L12 21l-3.5-3.5H11v-5H6V15l-3.5-3.5L6 8v2.5h5v-5H8.5z"/></svg>';
+const ERASER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.2 3.6a2 2 0 0 1 2.8 0l2.4 2.4a2 2 0 0 1 0 2.8L12.2 18H19v2H8.6l-5-5a2 2 0 0 1 0-2.8zM5 13.6l3.8 3.8h1.9l1.6-1.6-4.6-4.6z"/></svg>';
+const PIECE_NAMES = { K: 'king', Q: 'queen', R: 'rook', B: 'bishop', N: 'knight', P: 'pawn' };
+function editFen() {
+  const m = EDIT.map; const rows = [];
+  for (let r = 8; r >= 1; r--) {
+    let row = '', gap = 0;
+    for (const f of 'abcdefgh') { const code = m[f + r]; if (!code) { gap++; continue; } if (gap) { row += gap; gap = 0; } row += code[0] === 'w' ? code[1] : code[1].toLowerCase(); }
+    rows.push(row + (gap ? gap : ''));
+  }
+  // castling where king and rook still stand on their first squares
+  let cs = '';
+  if (m.e1 === 'wK' && m.h1 === 'wR') cs += 'K'; if (m.e1 === 'wK' && m.a1 === 'wR') cs += 'Q';
+  if (m.e8 === 'bK' && m.h8 === 'bR') cs += 'k'; if (m.e8 === 'bK' && m.a8 === 'bR') cs += 'q';
+  return `${rows.join('/')} ${EDIT.turn} ${cs || '-'} - 0 1`;
+}
+function openEditor(fen = START_FEN) {
+  const back = S.mode === 'analysis' && S.line ? { line: S.line, view: S.view, orientation: S.orientation } : null;
+  leaveBoard();
+  Object.assign(EDIT, { map: boardMap(fen), turn: fen.split(' ')[1] === 'b' ? 'b' : 'w', tool: 'move', sel: null, back });
+  if (back) S.orientation = back.orientation;
+  $('#edErr').hidden = true;
+  $('#edHelp').textContent = coarse()
+    ? 'Pick a piece, then tap the squares where it goes. Tap a piece of the same kind again to take it off. With the hand, tap a piece and then its new square.'
+    : 'Pick a piece, then click the squares where it goes. Click a piece of the same kind again to take it off. With the hand, click a piece and then its new square. Right-click removes a piece.';
+  setMode('edit'); renderCoords(); drawBoardCanvas(); renderPieces(editFen(), false); renderAll();
+}
+function renderEditor() {
+  if (S.mode !== 'edit') return;
+  const tools = [['move', HAND_SVG, 'Hand: move pieces', true], ...EDIT_PIECES.map(c => [c, pieceSVG(c), `${c[0] === 'w' ? 'White' : 'Black'} ${PIECE_NAMES[c[1]]}`, false]), ['erase', ERASER_SVG, 'Eraser', true]];
+  const html = tools.map(([id, svg, label, ic]) => `<button class="ed-tool${ic ? ' ic' : ''}" data-tool="${id}" aria-label="${label}" title="${label}" aria-pressed="${EDIT.tool === id}">${svg}</button>`).join('');
+  const el = $('#edTools'); if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  document.querySelectorAll('#edTurn .seg-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.turn === EDIT.turn)));
+}
+function editPointer(e) {
+  const sq = sqFromEvent(e); if (!sq) return; e.preventDefault();
+  const m = EDIT.map;
+  if (e.button === 2) { delete m[sq]; EDIT.sel = null; }
+  else if (e.button !== undefined && e.button !== 0) return;
+  else if (EDIT.tool === 'move') {
+    if (EDIT.sel) { if (EDIT.sel !== sq) { m[sq] = m[EDIT.sel]; delete m[EDIT.sel]; } EDIT.sel = null; }
+    else if (m[sq]) EDIT.sel = sq;
+  } else if (EDIT.tool === 'erase') delete m[sq];
+  else if (m[sq] === EDIT.tool) delete m[sq];
+  else {
+    if (EDIT.tool[1] === 'K') for (const k of Object.keys(m)) if (m[k] === EDIT.tool) delete m[k];   // one king a side: it moves here
+    m[sq] = EDIT.tool;
+  }
+  $('#edErr').hidden = true; Snd.clack(.3, 2200);
+  renderPieces(editFen(), false); renderHighlights(); renderPlates();
+}
+function editDone() {
+  const fen = editFen(); const bad = positionProblem(fen);
+  if (bad) { $('#edErr').textContent = bad; $('#edErr').hidden = false; return; }
+  openAnalysis(fen, S.orientation);
+}
+function editCancel() {
+  const back = EDIT.back; EDIT.back = null;
+  if (!back) { openReviewPage(); return; }
+  S.line = back.line; S.view = back.view; S.orientation = back.orientation; S.chess = chessAt(S.line.fens[S.line.fens.length - 1]);
+  setMode('analysis'); renderCoords(); drawBoardCanvas(); renderPieces(boardFen(), false); renderAll(); anLook();
+}
+
+// ---- the Review a game page
+function openReviewPage(tab) {
+  leaveBoard(); S.orientation = 'w';
+  setMode('import'); renderCoords(); drawBoardCanvas(); renderPieces(START_FEN, false); renderAll(); save();
+  if (window.WP_IMPORT) window.WP_IMPORT.open(tab);
+}
+
+// ---- marks: right-click a square to mark it, right-drag for an arrow: orange, or green with Shift, red with
+// Ctrl, blue with Alt, like chess.com. A left click on the board clears them. They belong to the position they
+// were drawn on, so they go when the position changes.
+const MK = { fen: null, arrows: [], squares: [], start: null, col: 'o' };
+const MK_COLORS = { o: '#f0a020', g: '#6fae2a', r: '#e2452f', b: '#3a8ce6' };
+const marksHere = () => MK.fen === boardFen() && (MK.arrows.length > 0 || MK.squares.length > 0);
+function clearMarks() { if (!MK.arrows.length && !MK.squares.length) return false; MK.arrows = []; MK.squares = []; renderHighlights(); return true; }
+function markStart(e) {
+  if (e.pointerType === 'touch') return;
+  if (S.premoves.length) { clearPremoves(); return; }    // right-click cancels premoves, as before
+  if (S.sel && !dragState) selectSq(null);
+  const sq = sqFromEvent(e); if (!sq) return;
+  MK.start = sq; MK.col = e.shiftKey ? 'g' : (e.ctrlKey || e.metaKey) ? 'r' : e.altKey ? 'b' : 'o';
+  try { boardEl().setPointerCapture(e.pointerId); } catch (_) {}
+}
+function markEnd(e) {
+  const from = MK.start; MK.start = null; if (!from) return;
+  const to = sqFromEvent(e); if (!to) return;
+  if (MK.fen !== boardFen()) { MK.fen = boardFen(); MK.arrows = []; MK.squares = []; }
+  const toggle = (list, same, item) => { const i = list.findIndex(same); const was = i >= 0 ? list[i] : null; if (i >= 0) list.splice(i, 1); if (!was || was.col !== item.col) list.push(item); };
+  if (to === from) toggle(MK.squares, x => x.sq === from, { sq: from, col: MK.col });
+  else toggle(MK.arrows, x => x.from === from && x.to === to, { from, to, col: MK.col });
+  renderHighlights();
+}
+
+function wireFree() {
+  $('#annot').addEventListener('click', (e) => { const b = e.target.closest('[data-ex]'); if (!b) return; if (b.dataset.ex === 'undo') exploreBack(); else goTo(S.view); });
+  $('#anLook').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-an-line]'); if (!b) return;
+    const a = AN.cache.get(boardFen()); const x = a && a.lines[+b.dataset.anLine]; if (!x) return;
+    const u = x.pv[0]; freeMove(u.slice(0, 2), u.slice(2, 4), u[4]);
+  });
+  $('#anDone').addEventListener('click', () => openReviewPage());
+  $('#anSetup').addEventListener('click', () => openEditor(boardFen()));
+  $('#anCopyFen').addEventListener('click', () => copyText(boardFen(), 'FEN'));
+  $('#anReview').addEventListener('click', () => { if (S.line && S.line.moves.length) startReview(); });
+  $('#anFenBtn').addEventListener('click', () => { const f = $('#anFenForm'); f.hidden = !f.hidden; $('#anErr').hidden = true; if (!f.hidden) { $('#anFen').value = ''; $('#anFen').focus(); } });
+  $('#anFenForm').addEventListener('submit', (e) => {
+    e.preventDefault(); const fen = $('#anFen').value.trim().replace(/\s+/g, ' ');
+    const full = fen.split(' ').length === 4 ? fen + ' 0 1' : fen;   // a FEN without move counters is fine too
+    const bad = !fen ? 'Paste a FEN first.' : positionProblem(full);
+    if (bad) { $('#anErr').textContent = bad; $('#anErr').hidden = false; return; }
+    openAnalysis(full);
+  });
+  $('#edTools').addEventListener('click', (e) => { const b = e.target.closest('[data-tool]'); if (!b) return; EDIT.tool = b.dataset.tool; EDIT.sel = null; renderEditor(); renderHighlights(); });
+  $('#edTurn').addEventListener('click', (e) => { const b = e.target.closest('[data-turn]'); if (!b) return; EDIT.turn = b.dataset.turn; $('#edErr').hidden = true; renderEditor(); });
+  $('#edStart').addEventListener('click', () => { EDIT.map = boardMap(START_FEN); EDIT.turn = 'w'; EDIT.sel = null; $('#edErr').hidden = true; renderPieces(editFen(), false); renderAll(); });
+  $('#edClear').addEventListener('click', () => { EDIT.map = {}; EDIT.sel = null; $('#edErr').hidden = true; renderPieces(editFen(), false); renderAll(); });
+  $('#edFlip').addEventListener('click', flip);
+  $('#edGo').addEventListener('click', editDone);
+  $('#edCancel').addEventListener('click', editCancel);
 }
 
 /* =====================================================================
@@ -2951,7 +3328,7 @@ function copyPGN() {
    ===================================================================== */
 const STORE = 'woodpusher.v1';
 function snapshot() {
-  if (S.mode === 'puzzle' || S.mode === 'lesson' || S.mode === 'online') return S.parked || { v: 1, settings: S.settings, mode: 'idle', line: null, game: null, review: null };
+  if (['puzzle', 'lesson', 'online', 'import', 'edit'].includes(S.mode)) return S.parked || { v: 1, settings: S.settings, mode: 'idle', line: null, game: null, review: null };
   const L = S.line, g = S.game;
   return {
     v: 1, settings: S.settings, mode: S.mode, orientation: S.orientation, view: S.view,
@@ -2986,6 +3363,7 @@ function restore(d) {
     setMode(mode === 'review' ? 'review' : mode);
     renderCoords(); renderPieces(fens[S.view], false); renderAll();
     if (mode === 'review') analyse();
+    if (mode === 'analysis') anLook();
     return true;
   } catch (e) { S.line = null; S.game = null; S.chess = null; return false; }
 }
@@ -3032,18 +3410,17 @@ function wire() {
     if (S.mode === 'review') { if (S.review) S.review.token++; ENG.pool.forEach(x => x.cancelAll()); }
     abandonGame();
   });
-  // The dialog finds games by username (on the Woodpusher site, see importer.js) or takes a pasted PGN
-  const openImport = (tab) => { $('#pgnErr').hidden = true; $('#pgnModal').hidden = false; if (window.WP_IMPORT) window.WP_IMPORT.open(tab); else $('#pgnInput').focus(); };
-  $('#btnImport').addEventListener('click', () => openImport()); $('#btnImport2').addEventListener('click', () => openImport('paste'));
-  $('#btnFindGames').addEventListener('click', () => openImport('user'));
+  // Review a game is a page: find games by username (importer.js), paste a PGN, or open the analysis board
+  $('#btnImport').addEventListener('click', (e) => leaveForTrainer(e.currentTarget, 'Leave this game?', () => openReviewPage()));
   $('#btnSample').addEventListener('click', () => { if (S.mode === 'play') { toast('Finish or abandon your game first.'); return; } loadPGNForReview(OPERA_PGN); });
-  $('#pgnSample').addEventListener('click', () => { $('#pgnInput').value = OPERA_PGN; $('#pgnErr').hidden = true; });
-  $('#pgnCancel').addEventListener('click', () => { $('#pgnModal').hidden = true; });
+  $('#btnAnalysis').addEventListener('click', () => openAnalysis(START_FEN));
+  $('#btnSetup').addEventListener('click', () => openEditor(START_FEN));
   $('#pgnGo').addEventListener('click', () => {
     if (S.mode === 'play') { $('#pgnErr').textContent = 'Finish or abandon your current game first.'; $('#pgnErr').hidden = false; return; }
-    try { loadPGNForReview($('#pgnInput').value); $('#pgnModal').hidden = true; }
+    try { loadPGNForReview($('#pgnInput').value); $('#pgnErr').hidden = true; }
     catch (err) { $('#pgnErr').textContent = err.message; $('#pgnErr').hidden = false; }
   });
+  wireFree();
   $('#expClose').addEventListener('click', () => { $('#exportModal').hidden = true; });
   document.querySelectorAll('.modal-back').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.hidden = true; }));
   $('#btnTakeback').addEventListener('click', takeback);
@@ -3061,8 +3438,8 @@ function wire() {
   $('#btnPrevKey').addEventListener('click', () => { const k = keyMoments().filter(p => p < S.view); if (k.length) goTo(k[k.length - 1]); });
   $('#btnNextKey').addEventListener('click', () => { const k = keyMoments().find(p => p > S.view); if (k) goTo(k); });
   $('#navFirst').addEventListener('click', () => goTo(0));
-  $('#navPrev').addEventListener('click', () => goTo(S.view - 1));
-  $('#navNext').addEventListener('click', () => goTo(S.view + 1));
+  $('#navPrev').addEventListener('click', stepBack);
+  $('#navNext').addEventListener('click', stepOn);
   $('#navLast').addEventListener('click', () => goTo(liveIndex()));
   $('#navFlip').addEventListener('click', flip);
   $('#mlist').addEventListener('click', e => { const b = e.target.closest('.mv[data-ply]'); if (b) goTo(+b.dataset.ply); });
@@ -3073,16 +3450,14 @@ function wire() {
   const b = boardEl();
   b.addEventListener('pointerdown', onPointerDown); b.addEventListener('pointermove', onPointerMove);
   b.addEventListener('pointerup', onPointerUp); b.addEventListener('pointercancel', onPointerUp);
-  b.addEventListener('contextmenu', e => {
-    e.preventDefault(); if (lastPointerType === 'touch') return;
-    if (S.premoves.length) clearPremoves(); else if (S.sel && !dragState) selectSq(null);
-  });
+  // right-click is for marks (markStart): it cancels premoves and a selection there, never opens the browser's menu
+  b.addEventListener('contextmenu', e => e.preventDefault());
   document.addEventListener('keydown', e => {
     if (e.target.closest('textarea, input')) return;
-    if (e.key === 'Escape') { document.querySelectorAll('.modal-back').forEach(m => m.hidden = true); if (S.promoPending) { closePromo(); renderHighlights(); } if (S.premoves.length) clearPremoves(); if (S.sel) selectSq(null); return; }
+    if (e.key === 'Escape') { document.querySelectorAll('.modal-back').forEach(m => m.hidden = true); if (S.promoPending) { closePromo(); renderHighlights(); } if (S.premoves.length) clearPremoves(); if (S.sel) selectSq(null); clearMarks(); if (S.mode === 'edit' && EDIT.sel) { EDIT.sel = null; renderHighlights(); } return; }
     if (!document.querySelectorAll('.modal-back:not([hidden])').length) {
-      if (e.key === 'ArrowLeft') { goTo(S.view - 1); e.preventDefault(); }
-      else if (e.key === 'ArrowRight') { goTo(S.view + 1); e.preventDefault(); }
+      if (e.key === 'ArrowLeft') { stepBack(); e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { stepOn(); e.preventDefault(); }
       else if (e.key === 'Home') { goTo(0); e.preventDefault(); }
       else if (e.key === 'End') { goTo(liveIndex()); e.preventDefault(); }
       else if (e.key === 'f' || e.key === 'F') flip();

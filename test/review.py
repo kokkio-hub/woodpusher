@@ -37,7 +37,7 @@ async def main():
         for name in only:
             pgn = GAMES[name]
             if pgn: await pg.evaluate(f"loadPGNForReview(`{pgn}`)")
-            else: await pg.click('[data-side-tab="rv"]'); await pg.click('#btnSample')
+            else: await pg.click('#btnImport'); await pg.click('#btnSample')
             t0 = time.time(); ok = await poll(pg, "S.review && S.review.done")
             print(f'\n=== {name}: analysed in {time.time() - t0:.0f}s' if ok else f'\n=== {name}: analysis did not finish')
             rows = await pg.evaluate("""S.line.moves.map((m, i) => [moveLabel(i) + ' ' + m.san, S.review.cls[i]])""")
@@ -66,7 +66,7 @@ async def main():
         m = await (await b.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2)).new_page()
         m.on('pageerror', lambda e: errs.append('mobile: ' + str(e)))
         await m.goto(BASE + '/'); await asyncio.sleep(1); await poll(m, "document.querySelector('#engineStatus').classList.contains('ok')", 40)
-        await m.click('[data-side-tab="rv"]'); await m.click('#btnSample'); await poll(m, "S.review && S.review.done")
+        await m.click('#btnImport'); await m.click('#btnSample'); await poll(m, "S.review && S.review.done")
         await m.evaluate("goTo(31, false)"); await asyncio.sleep(.3)
         await m.screenshot(path=f'{OUT}/mobile.png', full_page=True)
         print('mobile scrollW', await m.evaluate('document.documentElement.scrollWidth'))

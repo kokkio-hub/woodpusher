@@ -20,6 +20,9 @@ Chess on a hand-drawn board: play people online with matchmaking, play Stockfish
 - **Something to do while you wait**: after "Find an opponent" you can play a bot or solve puzzles and keep your place in the queue. A bar at the bottom shows the search on every page. When the opponent is found the game starts straight away, and a bot game in progress is paused, to be resumed after the online game. The lobby shows how many players wait at each clock, and suggests a clock where someone is waiting.
 - **Progress follows your account**: puzzle rating and streaks, practised opening lines and the games against Stockfish behind the estimated Elo are saved to your account and merged between devices, so playing on two devices never loses anything (`server/progress.js`, `front/sync.js`). Progress made before logging in is added to the account.
 - **Profiles and a leaderboard**: `/@/name` shows ratings and win/draw/loss per time control, a rating graph, and the whole game history with a Review button per game; your own profile also shows your puzzle and opening progress. `/leaderboard` lists the top 50 per time control.
+- **Try your own moves, and an analysis board**: in a review you can move the pieces yourself to try another move; Stockfish answers with its evaluation and best line, and *Back to the game* returns. The analysis board (under *Review a game*) lets you play both sides from the start, a pasted FEN or a position you set up with the editor, with Stockfish's three best lines for every position; *Review these moves* grades the line like a game.
+- **Arrows and marks**: right-drag on the board draws an arrow, right-click marks a square (orange; green with Shift, red with Ctrl, blue with Alt). A left click clears them.
+- **Accounts without email**: log in from the menu. A recovery code, shown once at sign-up, replaces a forgotten password; the password can be changed and a new code made under Settings.
 - **Laid out like chess.com**: on a computer the menu runs down the left with the board in the middle and a tabbed panel beside it. On phones and tablets the menu is a bar along the bottom, and on a phone the board runs the full width of the screen without its frame, with the coordinates in the corner squares; before a game a row right under the board shows the opponent and clock with a Play button. The last move and the selected piece are marked in the same clear yellow on every board.
 - **Install it as an app**: a web app manifest and a service worker (`front/sw.js`) make Woodpusher installable from Chrome, Edge, Samsung Internet and Safari on iPhone and iPad. Once loaded it opens without a connection too: Stockfish, the top-10 bots, puzzles, openings and reviews all work offline. Install from Settings or the footer link.
 
@@ -55,7 +58,8 @@ Railway redeploys automatically every time new code lands on the `main` branch.
 ## Before you share it publicly
 
 - The privacy statement is `front/privacy.html`. After changing it, run `npm run build:front` so the copy in `public/` is updated.
-- Woodpusher stores only a username, a bcrypt password hash, ratings, games and (for logged-in players) puzzle, opening and Stockfish-game progress. No email addresses, no tracking, and the fonts are self-hosted.
+- Woodpusher stores only a username, a bcrypt password hash, a bcrypt hash of the account's recovery code, ratings, games and (for logged-in players) puzzle, opening and Stockfish-game progress. No email addresses, no tracking, and the fonts are self-hosted.
+- A forgotten password is replaced with the recovery code shown once at sign-up (or made later under Settings), since there is no email address to send a link to. Changing the password logs out the account's other devices.
 - Players can delete their account themselves. This removes the account, ratings and saved progress and takes their name out of past games.
 
 ## Project layout

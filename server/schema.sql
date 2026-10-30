@@ -102,3 +102,5 @@ CREATE TABLE IF NOT EXISTS app_meta (
   value TEXT NOT NULL,
   at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- A recovery code replaces a forgotten password; only its bcrypt hash is kept (see server/auth.js)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_hash TEXT;
